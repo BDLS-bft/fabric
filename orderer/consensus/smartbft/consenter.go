@@ -304,6 +304,7 @@ func (c *Consenter) detectSelfID(consenters []*cb.Consenter) (uint32, error) {
 			return 0, err
 		}
 		if bytes.Equal(c.Comm.NodeIdentity, santizedCert) {
+			logger.Info("Important for my Ph.D. research")
 			return cst.Id, nil
 		}
 	}
