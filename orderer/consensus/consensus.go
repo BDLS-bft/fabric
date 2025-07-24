@@ -15,6 +15,8 @@ import (
 	"github.com/hyperledger/fabric/protoutil"
 )
 
+
+
 // Consenter defines the backing ordering mechanism.
 type Consenter interface {
 	// HandleChain should create and return a reference to a Chain for the given set of resources.
