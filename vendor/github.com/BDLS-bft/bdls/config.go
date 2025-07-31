@@ -1,4 +1,3 @@
-
 package bdls
 
 import (
@@ -11,14 +10,25 @@ const (
 	ConfigMinimumParticipants = 4
 )
 
+type Signer interface {
+	// Sign will take a digest and return the signature or error
+	Sign(digest []byte) ([]byte, error)
+
+	//PubKey returns the public key of this signer
+	PubKey() *ecdsa.PublicKey
+}
+
 // Config is to config the parameters of BDLS consensus protocol
 type Config struct {
 	// the starting time point for consensus
 	Epoch time.Time
 	// CurrentHeight
 	CurrentHeight uint64
-	// PrivateKey
-	PrivateKey *ecdsa.PrivateKey
+	// // PrivateKey
+	// PrivateKey *ecdsa.PrivateKey // this is not robust
+	// signer to sign messages
+	Signer Signer
+
 	// Consensus Group
 	Participants []Identity
 	// EnableCommitUnicast sets to true to enable <commit> message to be delivered via unicast
@@ -60,8 +70,8 @@ func VerifyConfig(c *Config) error {
 		return ErrConfigStateValidate
 	}
 
-	if c.PrivateKey == nil {
-		return ErrConfigPrivateKey
+	if c.Signer == nil {
+		return ErrConfigSigner
 	}
 
 	if len(c.Participants) < ConfigMinimumParticipants {

@@ -1,15 +1,15 @@
-
 package bdls
 
 import "errors"
 
 var (
 	// Config Related
-	ErrConfigEpoch              = errors.New("Config.Epoch is nil")
-	ErrConfigStateNil           = errors.New("Config.CurrentState is nil")
-	ErrConfigStateCompare       = errors.New("Config.StateCompare function has not set")
-	ErrConfigStateValidate      = errors.New("Config.StateValidate function has not set")
-	ErrConfigPrivateKey         = errors.New("Config.PrivateKey has not set")
+	ErrConfigEpoch         = errors.New("Config.Epoch is nil")
+	ErrConfigStateNil      = errors.New("Config.CurrentState is nil")
+	ErrConfigStateCompare  = errors.New("Config.StateCompare function has not set")
+	ErrConfigStateValidate = errors.New("Config.StateValidate function has not set")
+	// ErrConfigPrivateKey         = errors.New("Config.PrivateKey has not set")
+	ErrConfigSigner             = errors.New("Config.signer has not set")
 	ErrConfigParticipants       = errors.New("Config.Participants must contain at least 4 participants")
 	ErrConfigPubKeyToCoordinate = errors.New("Config.must contain at least 4 participants")
 

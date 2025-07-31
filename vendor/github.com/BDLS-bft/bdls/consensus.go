@@ -12,7 +12,6 @@ import (
 	//"fmt"
 	"github.com/BDLS-bft/bdls/crypto/blake2b"
 
-
 	proto "github.com/gogo/protobuf/proto"
 )
 
@@ -278,8 +277,11 @@ type Consensus struct {
 	// the StateHash function to identify a state
 	stateHash func(State) StateHash
 
-	// private key
-	privateKey *ecdsa.PrivateKey
+	// // private key
+	// privateKey *ecdsa.PrivateKey // this is not robust, use Signer instead
+
+	Signer Signer // Signer interface to sign messages
+
 	// my publickey coodinate
 	identity Identity
 	// curve retrieved from private key
@@ -334,7 +336,8 @@ func (c *Consensus) init(config *Config) {
 	c.stateValidate = config.StateValidate
 	c.messageValidator = config.MessageValidator
 	c.messageOutCallback = config.MessageOutCallback
-	c.privateKey = config.PrivateKey
+	// c.privateKey = config.PrivateKey // this is not robust, use Signer instead
+	c.Signer = config.Signer
 	c.pubKeyToIdentity = config.PubKeyToIdentity
 	c.enableCommitUnicast = config.EnableCommitUnicast
 
@@ -346,8 +349,11 @@ func (c *Consensus) init(config *Config) {
 	if c.pubKeyToIdentity == nil {
 		c.pubKeyToIdentity = DefaultPubKeyToIdentity
 	}
-	c.identity = c.pubKeyToIdentity(&c.privateKey.PublicKey)
-	c.curve = c.privateKey.Curve
+	// c.identity = c.pubKeyToIdentity(&c.privateKey.PublicKey)
+	// c.curve = c.privateKey.Curve   // this is not robust, use Signer instead
+
+	c.identity = c.pubKeyToIdentity(c.Signer.PubKey()) // Get the public key from the signer
+	c.curve = c.Signer.PubKey().Curve                  // Get the curve from the public key
 
 	// initial default parameters settings
 	c.latency = DefaultConsensusLatency
@@ -367,7 +373,7 @@ func (c *Consensus) init(config *Config) {
 	c.numIdentities = len(ids)
 }
 
-//  calculates roundchangeDuration
+// calculates roundchangeDuration
 func (c *Consensus) roundchangeDuration(round uint64) time.Duration {
 	d := 2 * c.latency * (1 << round)
 	if d > MaxConsensusLatency {
@@ -376,7 +382,7 @@ func (c *Consensus) roundchangeDuration(round uint64) time.Duration {
 	return d
 }
 
-//  calculates collectDuration
+// calculates collectDuration
 func (c *Consensus) collectDuration(round uint64) time.Duration {
 	d := 2 * c.latency * (1 << round)
 	if d > MaxConsensusLatency {
@@ -385,7 +391,7 @@ func (c *Consensus) collectDuration(round uint64) time.Duration {
 	return d
 }
 
-//  calculates lockDuration
+// calculates lockDuration
 func (c *Consensus) lockDuration(round uint64) time.Duration {
 	d := 4 * c.latency * (1 << round)
 	if d > MaxConsensusLatency {
@@ -1024,7 +1030,7 @@ func (c *Consensus) broadcast(m *Message) *SignedProto {
 	// sign
 	sp := new(SignedProto)
 	sp.Version = ProtocolVersion
-	sp.Sign(m, c.privateKey)
+	sp.Sign(m, c.Signer)
 
 	// message callback
 	if c.messageOutCallback != nil {
@@ -1051,7 +1057,7 @@ func (c *Consensus) sendTo(m *Message, leader Identity) {
 	// sign
 	sp := new(SignedProto)
 	sp.Version = ProtocolVersion
-	sp.Sign(m, c.privateKey)
+	sp.Sign(m, c.Signer)
 
 	// message callback
 	if c.messageOutCallback != nil {

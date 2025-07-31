@@ -3,12 +3,13 @@ package bdls
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
+
+	//"crypto/rand"
+	"encoding/asn1"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"math/big"
-
 
 	"github.com/BDLS-bft/bdls/crypto/blake2b"
 	"github.com/BDLS-bft/bdls/crypto/btcec"
@@ -138,7 +139,7 @@ func (sp *SignedProto) Hash() []byte {
 }
 
 // Sign the message with a private key
-func (sp *SignedProto) Sign(m *Message, privateKey *ecdsa.PrivateKey) {
+func (sp *SignedProto) Sign(m *Message, signer Signer) {
 	bts, err := proto.Marshal(m)
 	if err != nil {
 		panic(err)
@@ -147,23 +148,28 @@ func (sp *SignedProto) Sign(m *Message, privateKey *ecdsa.PrivateKey) {
 	sp.Version = ProtocolVersion
 	sp.Message = bts
 
-	err = sp.X.Unmarshal(privateKey.PublicKey.X.Bytes())
+	err = sp.X.Unmarshal(signer.PubKey().X.Bytes())
 	if err != nil {
 		panic(err)
 	}
-	err = sp.Y.Unmarshal(privateKey.PublicKey.Y.Bytes())
+	err = sp.Y.Unmarshal(signer.PubKey().Y.Bytes())
 	if err != nil {
 		panic(err)
 	}
 	hash := sp.Hash()
 
 	// sign the message
-	r, s, err := ecdsa.Sign(rand.Reader, privateKey, hash)
+	signature, err := signer.Sign(hash[:])
 	if err != nil {
 		panic(err)
 	}
-	sp.R = r.Bytes()
-	sp.S = s.Bytes()
+	var sig struct{ R, S *big.Int }
+	if _, err := asn1.Unmarshal(signature, &sig); err != nil {
+		panic(err)
+	}
+
+	sp.R = sig.R.Bytes()
+	sp.S = sig.S.Bytes()
 }
 
 // Verify the signature of this signed message
