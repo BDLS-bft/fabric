@@ -21,15 +21,3 @@ func New(logger, identity, config string) *Consenter {
 	}
 
 }
-func New1(logger, identity, config string) *Consenter {
-	fmt.Printf("Logger: %s\n", logger)
-	fmt.Printf("Identity: %s\n", identity)
-	fmt.Printf("Config: %s\n", config)
-
-	return &Consenter{
-		Logger:   logger,
-		Identity: identity,
-		Config:   config,
-	}
-
-}
