@@ -15,6 +15,7 @@ func New(logger, identity, config string) *Consenter {
 	fmt.Printf("Config: %s\n", config)
 
 	return &Consenter{
+
 		Logger:   logger,
 		Identity: identity,
 		Config:   config,
