@@ -51,6 +51,7 @@ require (
 	github.com/IBM/idemix/bccsp/types v0.0.0-20240913182345-72941a5f41cd // indirect
 	github.com/IBM/mathlib v0.0.3-0.20231011094432-44ee0eb539da // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/SmartBFT-Go/consensus v0.3.0 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
 	github.com/alecthomas/units v0.0.0-20240626203959-61d1e3462e30 // indirect

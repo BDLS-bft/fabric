@@ -7,11 +7,11 @@ SPDX-License-Identifier: Apache-2.0
 package bdls
 
 import (
-	//"github.com/hyperledger-labs/SmartBFT/pkg/types"
+	"github.com/hyperledger-labs/SmartBFT/pkg/types"
 	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
-	//"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protoutil"
 )
 
 //go:generate mockery --dir . --name SignerSerializer --case underscore --with-expecter=true --output mocks
@@ -29,6 +29,11 @@ type Signer struct {
 	LastConfigBlockNum func(*cb.Block) uint64
 }
 
+type Logger interface {
+	Warnf(format string, args ...interface{})
+	Panicf(format string, args ...interface{})
+}
+
 // Sign signs the message
 func (s *Signer) Sign(msg []byte) []byte {
 	signature, err := s.SignerSerializer.Sign(msg)
@@ -36,6 +41,33 @@ func (s *Signer) Sign(msg []byte) []byte {
 		s.Logger.Panicf("Failed signing message: %v", err)
 	}
 	return signature
+}
+
+// SignProposal signs the proposal
+func (s *Signer) SignProposal(proposal types.Proposal, _ []byte) *types.Signature {
+	block, err := ProposalToBlock(proposal)
+	if err != nil {
+		s.Logger.Panicf("Tried to sign bad proposal: %v", err)
+	}
+
+	nonce := randomNonceOrPanic()
+
+	sig := Signature{
+		BlockHeader:      protoutil.BlockHeaderBytes(block.Header),
+		IdentifierHeader: protoutil.MarshalOrPanic(s.newIdentifierHeaderOrPanic(nonce)),
+		OrdererBlockMetadata: protoutil.MarshalOrPanic(&cb.OrdererBlockMetadata{
+			LastConfig:        &cb.LastConfig{Index: s.LastConfigBlockNum(block)},
+			ConsenterMetadata: proposal.Metadata,
+		}),
+	}
+
+	signature := protoutil.SignOrPanic(s.SignerSerializer, sig.AsBytes())
+
+	return &types.Signature{
+		ID:    s.ID,
+		Value: signature,
+		Msg:   sig.Marshal(),
+	}
 }
 
 // newIdentifierHeaderOrPanic creates an IdentifierHeader with the signer's identifier and a valid nonce

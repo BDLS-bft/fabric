@@ -53,6 +53,8 @@ github.com/Microsoft/go-winio/internal/fs
 github.com/Microsoft/go-winio/internal/socket
 github.com/Microsoft/go-winio/internal/stringbuffer
 github.com/Microsoft/go-winio/pkg/guid
+# github.com/SmartBFT-Go/consensus v0.3.0
+## explicit; go 1.16
 # github.com/VictoriaMetrics/fastcache v1.12.2
 ## explicit; go 1.13
 github.com/VictoriaMetrics/fastcache
@@ -268,7 +270,6 @@ github.com/hyperledger/fabric-lib-go/healthz
 ## explicit; go 1.22.0
 github.com/hyperledger/fabric-protos-go/common
 github.com/hyperledger/fabric-protos-go/msp
-github.com/hyperledger/fabric-protos-go/orderer
 # github.com/hyperledger/fabric-protos-go-apiv2 v0.3.7
 ## explicit; go 1.22.0
 github.com/hyperledger/fabric-protos-go-apiv2/common
