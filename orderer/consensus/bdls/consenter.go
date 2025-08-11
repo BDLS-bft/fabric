@@ -73,7 +73,7 @@ type Consenter struct {
 	// Some fields from etcdraft that i feel are important for BDLS
 	Communication cluster.Communicator
 	TLSCert       []byte
-	Dispatcher    *Dispatcher
+	*Dispatcher
 	OrdererConfig localconfig.TopLevel
 }
 
@@ -135,6 +135,9 @@ func New(
 
 	// This will print the standard -----BEGIN CERTIFICATE----- block
 	logger.Debugf("TLS Cert PEM:\n%s", srvConf.SecOpts.Certificate)
+	logger.Debugf("TLS Key PEM:\n%s", srvConf.SecOpts.Key)
+	logger.Debugf("okay this is conf server key%s", conf.General.TLS.PrivateKey)
+	logger.Info("if i can get this i can get a private key to support PoC i hope")
 
 	consenter.Dispatcher = &Dispatcher{
 		Logger:        logger,
@@ -303,10 +306,13 @@ func createComm(clusterDialer *cluster.PredicateDialer, c *Consenter, config loc
 	compareCert := cluster.CachePublicKeyComparisons(func(a, b []byte) bool {
 		err := crypto.CertificatesWithSamePublicKey(a, b)
 		if err != nil && err != crypto.ErrPubKeyMismatch {
+			logger.Debugf("Failed to compare certificates: %v", err)
 			crypto.LogNonPubKeyMismatchErr(logger.Errorf, err, a, b)
 		}
 		return err == nil
 	})
+
+	logger.Debugf("***********compare cert done****************************")
 
 	comm := &cluster.Comm{
 		MinimumExpirationWarningInterval: cluster.MinimumExpirationWarningInterval,
@@ -317,9 +323,11 @@ func createComm(clusterDialer *cluster.PredicateDialer, c *Consenter, config loc
 		Connections:                      cluster.NewConnectionStore(clusterDialer, metrics.EgressTLSConnectionCount),
 		Metrics:                          metrics,
 		ChanExt:                          c,
-		H:                                c.ClusterService.RequestHandler,
+		H:                                c,
 		CompareCertificate:               compareCert,
 	}
+
+	logger.Debugf("***********cluster communication created****************************")
 	c.Communication = comm
 	return comm
 }
