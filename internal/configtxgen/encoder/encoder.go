@@ -44,6 +44,8 @@ const (
 	ConsensusTypeEtcdRaft = "etcdraft"
 	// ConsensusTypeBFT identifies the BFT-based consensus implementation.
 	ConsensusTypeBFT = "BFT"
+	// ConsensusTypeBDLS identifies the BDLS-based consensus implementation.
+	ConsensusTypeBDLS = "BDLS"
 
 	// BlockValidationPolicyKey TODO
 	BlockValidationPolicyKey = "BlockValidation"
@@ -228,6 +230,14 @@ func NewOrdererGroup(conf *genesisconfig.Orderer, channelCapabilities map[string
 		conf.SmartBFT.LeaderRotation = smartbft.Options_ROTATION_OFF
 		// Overwrite policy manually by computing it from the consenters
 		policies.EncodeBFTBlockVerificationPolicy(consenterProtos, ordererGroup)
+	case ConsensusTypeBDLS:
+		// BDLS uses the same style of explicit orderer set as BFT, encoded via OrderersValue.
+		consenterProtos, err := consenterProtosFromConfig(conf.ConsenterMapping)
+		if err != nil {
+			return nil, errors.Errorf("cannot load consenter config for orderer type %s: %s", ConsensusTypeBDLS, err)
+		}
+		addValue(ordererGroup, channelconfig.OrderersValue(consenterProtos), channelconfig.AdminsPolicyKey)
+		// No BDLS-specific consensus metadata currently.
 	default:
 		return nil, errors.Errorf("unknown orderer type: %s", conf.OrdererType)
 	}

@@ -26,6 +26,7 @@ const (
 	// EtcdRaft The type key for etcd based RAFT consensus.
 	EtcdRaft = "etcdraft"
 	BFT      = "BFT"
+    BDLS     = "BDLS"
 )
 
 var logger = flogging.MustGetLogger("common.tools.configtxgen.localconfig")
@@ -453,6 +454,35 @@ loop:
 			cf.TranslatePathInPlace(configDir, &c.ServerTLSCert)
 			cf.TranslatePathInPlace(configDir, &c.Identity)
 		}
+    case BDLS:
+        // BDLS requires ConsenterMapping; reuse the same validation as BFT
+        if len(ord.ConsenterMapping) == 0 {
+            logger.Panicf("%s configuration did not specify any consenter", BDLS)
+        }
+        for _, c := range ord.ConsenterMapping {
+            if c.Host == "" {
+                logger.Panicf("consenter info in %s configuration did not specify host", BDLS)
+            }
+            if c.Port == 0 {
+                logger.Panicf("consenter info in %s configuration did not specify port", BDLS)
+            }
+            if c.ClientTLSCert == "" {
+                logger.Panicf("consenter info in %s configuration did not specify client TLS cert", BDLS)
+            }
+            if c.ServerTLSCert == "" {
+                logger.Panicf("consenter info in %s configuration did not specify server TLS cert", BDLS)
+            }
+            if len(c.MSPID) == 0 {
+                logger.Panicf("consenter info in %s configuration did not specify MSP ID", BDLS)
+            }
+            if len(c.Identity) == 0 {
+                logger.Panicf("consenter info in %s configuration did not specify identity certificate", BDLS)
+            }
+
+            cf.TranslatePathInPlace(configDir, &c.ClientTLSCert)
+            cf.TranslatePathInPlace(configDir, &c.ServerTLSCert)
+            cf.TranslatePathInPlace(configDir, &c.Identity)
+        }
 	default:
 		logger.Panicf("unknown orderer type: %s", ord.OrdererType)
 	}
