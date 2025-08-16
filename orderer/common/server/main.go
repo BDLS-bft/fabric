@@ -633,7 +633,7 @@ func initializeMultichannelRegistrar(
 	// the orderer can start without channels at all and have an initialized cluster type consenter
 	etcdraftConsenter, clusterMetrics := etcdraft.New(clusterDialer, conf, srvConf, srv, registrar, metricsProvider, bccsp)
 	consenters["etcdraft"] = etcdraftConsenter
-	consenters["BFT"] = bdls.New(dpmr.Registry(), signer, clusterDialer, conf, srvConf, srv, registrar, metricsProvider, clusterMetrics, bccsp)
+	consenters["BFT"] = bdls.New(clusterDialer, conf, srvConf, srv, registrar, metricsProvider, bccsp, clusterMetrics)
 	registrar.Initialize(consenters)
 	return registrar
 }

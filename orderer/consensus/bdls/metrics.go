@@ -96,6 +96,7 @@ type Metrics struct {
 	IsLeader                metrics.Gauge
 	ActiveNodes             metrics.Gauge
 	CommittedBlockNumber    metrics.Gauge
+	LeaderID                metrics.Gauge
 	SnapshotBlockNumber     metrics.Gauge
 	LeaderChanges           metrics.Counter
 	ProposalFailures        metrics.Counter
