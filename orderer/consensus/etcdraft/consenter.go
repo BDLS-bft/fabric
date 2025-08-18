@@ -342,7 +342,7 @@ func New(
 		Dispatcher: comm,
 	}
 	orderer.RegisterClusterServer(srv.Server(), svc)
-
+	logger.Debugf("************Cluster service registered with gRPC server from etcdraft code**************")
 	return consenter, comm.Metrics
 }
 

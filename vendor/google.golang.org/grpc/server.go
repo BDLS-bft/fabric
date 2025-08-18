@@ -33,6 +33,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/encoding"
@@ -724,6 +725,10 @@ type ServiceRegistrar interface {
 // invoking Serve. If ss is non-nil (for legacy code), its type is checked to
 // ensure it implements sd.HandlerType.
 func (s *Server) RegisterService(sd *ServiceDesc, ss any) {
+	logger := flogging.MustGetLogger("orderer.common.RegisterService")
+	logger.Infof("Register Service Called")
+	logger.Debugf("Registering service %s with handler type %T", sd.ServiceName, sd.HandlerType)
+
 	if ss != nil {
 		ht := reflect.TypeOf(sd.HandlerType).Elem()
 		st := reflect.TypeOf(ss)

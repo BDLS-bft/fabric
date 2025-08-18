@@ -216,18 +216,18 @@ func New(
 	comm := createComm(clusterDialer, consenter, conf.General.Cluster, metricsProvider)
 	consenter.Communication = comm
 	logger.Debugf("*************Cluster communication created successfully****************************")
-	// svc := &cluster.Service{
-	// 	CertExpWarningThreshold:          conf.General.Cluster.CertExpirationWarningThreshold,
-	// 	MinimumExpirationWarningInterval: cluster.MinimumExpirationWarningInterval,
-	// 	StreamCountReporter: &cluster.StreamCountReporter{
-	// 		Metrics: comm.Metrics,
-	// 	},
-	// 	StepLogger: flogging.MustGetLogger("orderer.common.bdls.cluster.step"),
-	// 	Logger:     flogging.MustGetLogger("orderer.common.bdls.cluster"),
-	// 	Dispatcher: comm,
-	// }
+	svc := &cluster.Service{
+		CertExpWarningThreshold:          conf.General.Cluster.CertExpirationWarningThreshold,
+		MinimumExpirationWarningInterval: cluster.MinimumExpirationWarningInterval,
+		StreamCountReporter: &cluster.StreamCountReporter{
+			Metrics: comm.Metrics,
+		},
+		StepLogger: flogging.MustGetLogger("orderer.common.bdls.cluster.step"),
+		Logger:     flogging.MustGetLogger("orderer.common.bdls.cluster"),
+		Dispatcher: comm,
+	}
 	logger.Infof("Registering Cluster service with gRPC server")
-	//ab.RegisterClusterServer(srv.Server(), svc)
+	ab.RegisterClusterServer(srv.Server(), svc)
 
 	logger.Debugf("************Cluster service registered with gRPC server-bdls style**************")
 
@@ -338,7 +338,7 @@ func createComm(clusterDialer *cluster.PredicateDialer, c *Consenter, config loc
 	}
 
 	logger.Debugf("***********cluster communication created****************************")
-	c.Communication = comm
+	// c.Communication = comm
 	return comm
 }
 
