@@ -9,8 +9,10 @@ var (
 	ErrConfigStateNil           = errors.New("Config.CurrentState is nil")
 	ErrConfigStateCompare       = errors.New("Config.StateCompare function has not set")
 	ErrConfigStateValidate      = errors.New("Config.StateValidate function has not set")
-	ErrConfigPrivateKey         = errors.New("Config.PrivateKey has not set")
+	ErrConfigSigner             = errors.New("Config.Signer has not set")
 	ErrConfigParticipants       = errors.New("Config.Participants must contain at least 4 participants")
+	ErrConfigComm               = errors.New("bdls: config missing Comm")
+	ErrConfigDeliver            = errors.New("bdls: config missing Deliver")
 	ErrConfigPubKeyToCoordinate = errors.New("Config.must contain at least 4 participants")
 
 	// common errors related to every message

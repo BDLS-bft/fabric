@@ -1,10 +1,26 @@
-
 package bdls
 
 import (
 	"crypto/ecdsa"
 	"time"
 )
+
+// Logger defines a generic logging interface for the consensus library.
+type Logger interface {
+	Debugf(template string, args ...interface{})
+	Infof(template string, args ...interface{})
+	Warnf(template string, args ...interface{})
+	Errorf(template string, args ...interface{})
+}
+
+// Ticker abstracts a time source that produces periodic events.
+type Ticker interface {
+	Chan() <-chan time.Time
+	Stop()
+}
+
+// TickerFactory constructs a Ticker for the provided interval.
+type TickerFactory func(time.Duration) Ticker
 
 const (
 	// ConfigMinimumParticipants is the minimum number of participant allow in consensus protocol
@@ -17,8 +33,8 @@ type Config struct {
 	Epoch time.Time
 	// CurrentHeight
 	CurrentHeight uint64
-	// PrivateKey
-	PrivateKey *ecdsa.PrivateKey
+	// Signer
+	Signer Signer
 	// Consensus Group
 	Participants []Identity
 	// EnableCommitUnicast sets to true to enable <commit> message to be delivered via unicast
@@ -44,6 +60,23 @@ type Config struct {
 	// Identity derviation from ecdsa.PublicKey
 	// (optional). Default to DefaultPubKeyToIdentity
 	PubKeyToIdentity func(pubkey *ecdsa.PublicKey) (ret Identity)
+
+	// Comm is the communication interface for sending messages.
+	Comm Transmitter
+
+	// Deliver is called when a block is committed.
+	Deliver func(State) error
+
+	// Logger is the logging interface.
+	Logger Logger
+
+	// TickInterval configures how frequently Consensus should advance its internal
+	// timers. If zero, a default interval is used.
+	TickInterval time.Duration
+
+	// NewTicker, if supplied, is used to construct the internal ticker that drives
+	// Consensus timeouts. If nil, time.NewTicker is used.
+	NewTicker TickerFactory
 }
 
 // VerifyConfig verifies the integrity of this config when creating new consensus object
@@ -60,8 +93,16 @@ func VerifyConfig(c *Config) error {
 		return ErrConfigStateValidate
 	}
 
-	if c.PrivateKey == nil {
-		return ErrConfigPrivateKey
+	if c.Signer == nil {
+		return ErrConfigSigner
+	}
+
+	if c.Comm == nil {
+		return ErrConfigComm
+	}
+
+	if c.Deliver == nil {
+		return ErrConfigDeliver
 	}
 
 	if len(c.Participants) < ConfigMinimumParticipants {
