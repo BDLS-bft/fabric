@@ -11,10 +11,10 @@ import (
 
 	//protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/BDLS-bft/bdls"
+	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/golang/protobuf/proto"
 	cb "github.com/hyperledger/fabric-protos-go/common"
 	ab "github.com/hyperledger/fabric-protos-go/orderer"
-	"github.com/hyperledger/fabric/protoutil"
 )
 
 //go:generate mockery -dir . -name RPC -case underscore -output mocks
@@ -79,8 +79,12 @@ func (e *Egress) SendTransaction(targetID uint64, request []byte) {
 }
 
 func bftMsgToClusterMsg(message *bdls.Message, channel string) *ab.ConsensusRequest {
+	payload, err := gogoproto.Marshal(message)
+	if err != nil {
+		panic(err)
+	}
 	return &ab.ConsensusRequest{
-		Payload: protoutil.MarshalOrPanic(message),
+		Payload: payload,
 		Channel: channel,
 	}
 }
