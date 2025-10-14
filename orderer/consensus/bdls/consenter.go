@@ -31,6 +31,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	"github.com/hyperledger/fabric/orderer/common/multichannel"
 	"github.com/hyperledger/fabric/orderer/consensus"
+	smartbftpkg "github.com/hyperledger/fabric/orderer/consensus/smartbft"
 	"github.com/hyperledger/fabric/protoutil"
 
 	//"google.golang.org/protobuf/proto"
@@ -94,14 +95,12 @@ func (c *Consenter) HandleChain(support consensus.ConsenterSupport, metadata *co
 		return nil, errors.Wrap(err, "failed parsing smartbft configuration")
 	}
 	//c.Logger.Debugf("SmartBFT-Go config: %+v", config)
-	/*
-		configValidator := &ConfigBlockValidator{
-			ValidatingChannel:    support.ChannelID(),
-			Filters:              c.Registrar,
-			ConfigUpdateProposer: c.Registrar,
-			Logger:               c.Logger,
-		}
-	*/
+	configValidator := &smartbftpkg.ConfigBlockValidator{
+		ValidatingChannel:    support.ChannelID(),
+		Filters:              c.Registrar,
+		ConfigUpdateProposer: c.Registrar,
+		Logger:               c.Logger,
+	}
 	opts := Options{
 		Consenters:        consenters,
 		MaxInflightBlocks: 1,
@@ -126,6 +125,7 @@ func (c *Consenter) HandleChain(support consensus.ConsenterSupport, metadata *co
 	if err != nil {
 		return nil, errors.Wrap(err, "failed creating a new Chain")
 	}
+	chain.verifier.ConfigValidator = configValidator
 	chain.opts = opts
 
 	// refresh cluster service with updated consenters
