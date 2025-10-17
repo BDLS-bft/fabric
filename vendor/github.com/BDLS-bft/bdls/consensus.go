@@ -5,7 +5,6 @@ import (
 	"container/list"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/sha256"
 	"errors"
 	"math/big"
 	"sort"
@@ -603,23 +602,22 @@ func (c *Consensus) verifyMessage(signed *SignedProto) (*Message, error) {
 		}
 	*/
 
-	// as public key is proven , we don't have to verify the public key
-	if !signed.Verify(c.curve) {
-		hash := signed.Hash()
-		pubKey := signed.PublicKey(c.curve)
-		sha := sha256.Sum256(hash)
-		var R, S big.Int
-		R.SetBytes(signed.R)
-		S.SetBytes(signed.S)
-		if !ecdsa.Verify(pubKey, sha[:], &R, &S) {
-			if c.logger != nil {
-				c.logger.Warnf("Signature verification failed: verifyDigest=false verifySHA256=false")
-			}
-			return nil, ErrMessageSignature
-		}
+	digest := signed.Hash()
+	if hasher, ok := c.signer.(interface {
+		HashDigest([]byte) []byte
+	}); ok {
+		digest = hasher.HashDigest(digest)
+	}
+
+	pubKey := signed.PublicKey(c.curve)
+	var R, S big.Int
+	R.SetBytes(signed.R)
+	S.SetBytes(signed.S)
+	if !ecdsa.Verify(pubKey, digest, &R, &S) {
 		if c.logger != nil {
-			c.logger.Debugf("Signature verified using sha256(digest) fallback")
+			c.logger.Warnf("Signature verification failed")
 		}
+		return nil, ErrMessageSignature
 	}
 
 	// decode message

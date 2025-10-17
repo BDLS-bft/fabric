@@ -33,6 +33,7 @@ type ReceiverGetter interface {
 
 type WarningLogger interface {
 	Warningf(template string, args ...interface{})
+	Debugf(template string, args ...interface{})
 }
 
 // Ingress dispatches Submit and Step requests to the designated per chain instances
@@ -56,12 +57,12 @@ func (in *Ingress) OnConsensus(channel string, sender uint64, request *ab.Consen
 
 	payload := request.Payload
 	if len(payload) == 0 {
-		in.Logger.Warningf("Consensus request from %d on channel %s has empty payload", sender, channel)
+		in.Logger.Debugf("Consensus request from %d on channel %s has empty payload", sender, channel)
 		receiver.HandleMessage(sender, payload)
 		return nil
 	}
 
-	in.Logger.Warningf("Consensus payload from %d on channel %s: len=%d bytes", sender, channel, len(payload))
+	in.Logger.Debugf("Consensus payload from %d on channel %s: len=%d bytes", sender, channel, len(payload))
 
 	signed := &bdls.SignedProto{}
 	if err := gogoproto.Unmarshal(payload, signed); err != nil {
@@ -71,7 +72,7 @@ func (in *Ingress) OnConsensus(channel string, sender uint64, request *ab.Consen
 		if err := gogoproto.Unmarshal(signed.Message, msg); err != nil {
 			in.Logger.Warningf("Failed to decode BDLS message body from %d on channel %s: %v", sender, channel, err)
 		} else {
-			in.Logger.Warningf("Consensus message from %d on channel %s: type=%s height=%d round=%d", sender, channel, msg.Type.String(), msg.Height, msg.Round)
+			in.Logger.Debugf("Consensus message from %d on channel %s: type=%s height=%d round=%d", sender, channel, msg.Type.String(), msg.Height, msg.Round)
 		}
 	}
 

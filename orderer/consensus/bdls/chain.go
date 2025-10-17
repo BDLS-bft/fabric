@@ -43,6 +43,7 @@ import (
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/sha3"
 
 	"github.com/BDLS-bft/bdls/crypto/btcec"
 )
@@ -52,6 +53,80 @@ type fabricSigner struct {
 	signer    signerSerializer
 	publicKey *ecdsa.PublicKey
 	logger    *flogging.FabricLogger
+	hashFunc  func([]byte) []byte
+	hashName  string
+}
+
+func newFabricSigner(signer signerSerializer, pubKey *ecdsa.PublicKey, logger *flogging.FabricLogger) *fabricSigner {
+	fs := &fabricSigner{
+		signer:    signer,
+		publicKey: pubKey,
+		logger:    logger,
+	}
+	fs.detectHashFunction()
+	return fs
+}
+
+func (fs *fabricSigner) detectHashFunction() {
+	if fs.publicKey == nil || fs.signer == nil {
+		return
+	}
+
+	testDigest := []byte("fabric-bdls-signature-hash-probe")
+	sigBytes, err := fs.signer.Sign(testDigest)
+	if err != nil {
+		if fs.logger != nil {
+			fs.logger.Warnf("Failed to probe signer hash function: %v", err)
+		}
+		return
+	}
+
+	var sig struct {
+		R, S *big.Int
+	}
+	if _, err := asn1.Unmarshal(sigBytes, &sig); err != nil {
+		if fs.logger != nil {
+			fs.logger.Warnf("Failed to decode probe signature: %v", err)
+		}
+		return
+	}
+
+	type candidate struct {
+		name string
+		fn   func([]byte) []byte
+	}
+	candidates := []candidate{
+		{name: "identity", fn: func(in []byte) []byte { return in }},
+		{name: "sha256", fn: func(in []byte) []byte {
+			sum := sha256.Sum256(in)
+			return sum[:]
+		}},
+		{name: "sha3-256", fn: func(in []byte) []byte {
+			sum := sha3.Sum256(in)
+			return sum[:]
+		}},
+	}
+
+	for _, cand := range candidates {
+		digest := cand.fn(testDigest)
+		if ecdsa.Verify(fs.publicKey, digest, sig.R, sig.S) {
+			if cand.name != "identity" {
+				fs.hashFunc = cand.fn
+				fs.hashName = cand.name
+			} else {
+				fs.hashFunc = nil
+				fs.hashName = cand.name
+			}
+			if fs.logger != nil {
+				fs.logger.Debugf("Detected signer hash function: %s", cand.name)
+			}
+			return
+		}
+	}
+
+	if fs.logger != nil {
+		fs.logger.Warnf("Unable to detect signer hash function; assuming identity")
+	}
 }
 
 func (fs *fabricSigner) Sign(digest []byte) (r, s *big.Int, err error) {
@@ -70,10 +145,9 @@ func (fs *fabricSigner) Sign(digest []byte) (r, s *big.Int, err error) {
 	}
 
 	if fs.logger != nil {
-		if !ecdsa.Verify(fs.publicKey, digest, ecdsaSig.R, ecdsaSig.S) {
-			hashed := sha256.Sum256(digest)
-			verifyHashed := ecdsa.Verify(fs.publicKey, hashed[:], ecdsaSig.R, ecdsaSig.S)
-			fs.logger.Warnf("Local signature verification failed on digest; verify sha256(digest)=%v", verifyHashed)
+		expected := fs.HashDigest(digest)
+		if !ecdsa.Verify(fs.publicKey, expected, ecdsaSig.R, ecdsaSig.S) {
+			fs.logger.Warnf("Local signature verification failed (hash=%s)", fs.hashName)
 		}
 	}
 
@@ -82,6 +156,13 @@ func (fs *fabricSigner) Sign(digest []byte) (r, s *big.Int, err error) {
 
 func (fs *fabricSigner) PublicKey() *ecdsa.PublicKey {
 	return fs.publicKey
+}
+
+func (fs *fabricSigner) HashDigest(digest []byte) []byte {
+	if fs.hashFunc == nil {
+		return digest
+	}
+	return fs.hashFunc(digest)
 }
 
 // ConfigValidator interface
@@ -589,10 +670,7 @@ func NewChain(
 	}
 	logger.Infof("Self signing key X=%s Y=%s", hex.EncodeToString(selfSigningPubKey.X.Bytes()), hex.EncodeToString(selfSigningPubKey.Y.Bytes()))
 
-	signer := &fabricSigner{
-		signer:    signerSerializer,
-		publicKey: selfSigningPubKey,
-	}
+	signer := newFabricSigner(signerSerializer, selfSigningPubKey, logger)
 
 	rpc := &cluster.RPC{
 		Channel:       c.Channel,
@@ -864,6 +942,57 @@ func publicKeyFromSerializedIdentity(serialized []byte, logger *flogging.FabricL
 	return publicKeyFromIdentity(sid.IdBytes, logger)
 }
 
+func (c *Chain) updateMembership(consenters []*common.Consenter) ([]cluster.RemoteNode, error) {
+	newIdentityMap := make(map[bdls.Identity]uint64, len(consenters))
+	newSigningKeys := make(map[uint64]*ecdsa.PublicKey, len(consenters))
+	newParticipants := make([]bdls.Identity, 0, len(consenters))
+	newNodeIDs := make([]uint64, 0, len(consenters))
+	newID2Identities := make(NodeIdentitiesByID, len(consenters))
+
+	for _, consenter := range consenters {
+		nodeID := uint64(consenter.Id)
+		newNodeIDs = append(newNodeIDs, nodeID)
+
+		if len(consenter.Identity) > 0 {
+			newID2Identities[nodeID] = consenter.Identity
+		}
+
+		pubKey, err := publicKeyFromIdentity(consenter.Identity, c.Logger)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to parse identity cert for consenter %d", consenter.Id)
+		}
+
+		identity := bdls.DefaultPubKeyToIdentity(pubKey)
+
+		newParticipants = append(newParticipants, identity)
+		newIdentityMap[identity] = nodeID
+		newSigningKeys[nodeID] = pubKey
+	}
+
+	c.bdlsChainLock.Lock()
+	c.opts.Consenters = consenters
+	if c.config != nil {
+		c.config.Participants = newParticipants
+	}
+	c.identityMap = newIdentityMap
+	c.signingPubKeys = newSigningKeys
+	c.bdlsChainLock.Unlock()
+
+	nodes, err := c.remotePeers()
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	runtimeConfig := c.verifier.RuntimeConfig.Load().(RuntimeConfig)
+	runtimeConfig.consenters = consenters
+	runtimeConfig.Nodes = newNodeIDs
+	runtimeConfig.ID2Identities = newID2Identities
+	runtimeConfig.RemoteNodes = nodes
+	c.verifier.RuntimeConfig.Store(runtimeConfig)
+
+	return nodes, nil
+}
+
 // Orders the envelope in the `msg` content. SubmitRequest.
 // Returns
 //
@@ -924,7 +1053,20 @@ func (c *Chain) writeBlock(block *common.Block, index uint64) {
 	if protoutil.IsConfigBlock(block) {
 		c.configInflight = false
 		c.support.WriteConfigBlock(block, nil)
-		c.opts.Consenters = c.support.SharedConfig().Consenters()
+
+		newConsenters := c.support.SharedConfig().Consenters()
+		nodes, err := c.updateMembership(newConsenters)
+		if err != nil {
+			c.Logger.Panicf("Failed to update membership from config block: %s", err)
+		}
+
+		runtimeConfig := c.verifier.RuntimeConfig.Load().(RuntimeConfig)
+		runtimeConfig.LastConfigBlock = block
+		runtimeConfig.LastBlock = block
+		runtimeConfig.LastCommittedBlockHash = hex.EncodeToString(protoutil.BlockHeaderHash(block.Header))
+		runtimeConfig.RemoteNodes = nodes
+		c.verifier.RuntimeConfig.Store(runtimeConfig)
+
 		if err := c.configureComm(); err != nil {
 			c.Logger.Panicf("Failed to configure communication: %s", err)
 		}
@@ -932,6 +1074,11 @@ func (c *Chain) writeBlock(block *common.Block, index uint64) {
 	}
 
 	c.support.WriteBlock(block, nil)
+
+	runtimeConfig := c.verifier.RuntimeConfig.Load().(RuntimeConfig)
+	runtimeConfig.LastBlock = block
+	runtimeConfig.LastCommittedBlockHash = hex.EncodeToString(protoutil.BlockHeaderHash(block.Header))
+	c.verifier.RuntimeConfig.Store(runtimeConfig)
 }
 
 func (c *Chain) configureComm() error {
@@ -982,16 +1129,15 @@ func (c *Chain) isRunning() error {
 func (c *Chain) Start() {
 	c.Logger.Infof("Starting BDLS node")
 
+	if err := c.startConsensus(c.config); err != nil {
+		c.Logger.Errorf("Failed to start BDLS consensus: %v", err)
+		c.signalError()
+		return
+	}
+
 	close(c.startC)
 
 	go c.runLoop()
-
-	go func() {
-		if err := c.startConsensus(c.config); err != nil {
-			c.Logger.Errorf("Failed to start BDLS consensus: %v", err)
-			c.signalError()
-		}
-	}()
 }
 
 // consensus for one round with full procedure
