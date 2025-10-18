@@ -11,10 +11,9 @@ import (
 	"sync"
 	"time"
 
-	//"fmt"
 	"github.com/BDLS-bft/bdls/crypto/blake2b"
 
-	proto "github.com/gogo/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -134,7 +133,7 @@ func newConsensusRound(round uint64, c *Consensus) *consensusRound {
 // to prevent multiple proposals attack.
 func (r *consensusRound) AddRoundChange(sp *SignedProto, m *Message) bool {
 	for k := range r.roundChanges {
-		if r.roundChanges[k].Signed.X == sp.X && r.roundChanges[k].Signed.Y == sp.Y {
+		if bytes.Equal(r.roundChanges[k].Signed.X, sp.X) && bytes.Equal(r.roundChanges[k].Signed.Y, sp.Y) {
 			return false
 		}
 	}
@@ -145,9 +144,9 @@ func (r *consensusRound) AddRoundChange(sp *SignedProto, m *Message) bool {
 
 // FindRoundChange will try to find a <roundchange> from a given participant,
 // and returns index, -1 if not found
-func (r *consensusRound) FindRoundChange(X PubKeyAxis, Y PubKeyAxis) int {
+func (r *consensusRound) FindRoundChange(X []byte, Y []byte) int {
 	for k := range r.roundChanges {
-		if r.roundChanges[k].Signed.X == X && r.roundChanges[k].Signed.Y == Y {
+		if bytes.Equal(r.roundChanges[k].Signed.X, X) && bytes.Equal(r.roundChanges[k].Signed.Y, Y) {
 			return k
 		}
 	}
@@ -190,7 +189,7 @@ func (r *consensusRound) RoundChangeStates() []State {
 // also, messages will be de-duplicated to prevent multiple proposals attack.
 func (r *consensusRound) AddCommit(sp *SignedProto, m *Message) bool {
 	for k := range r.commits {
-		if r.commits[k].Signed.X == sp.X && r.commits[k].Signed.Y == sp.Y {
+		if bytes.Equal(r.commits[k].Signed.X, sp.X) && bytes.Equal(r.commits[k].Signed.Y, sp.Y) {
 			return false
 		}
 	}
@@ -592,7 +591,7 @@ func (c *Consensus) verifyMessage(signed *SignedProto) (*Message, error) {
 	/*
 		// public key validation
 		p := defaultCurve.Params().P
-		x := new(big.Int).SetBytes(signed.X[:])
+		x := new(big.Int).SetBytes(normalizeAxis(signed.X))
 		y := new(big.Int).SetBytes(signed.Y[:])
 		if x.Cmp(p) >= 0 || y.Cmp(p) >= 0 {
 			return nil, ErrMessageSignature

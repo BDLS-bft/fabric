@@ -8,11 +8,10 @@ import (
 	"errors"
 	"math/big"
 
-
 	"github.com/BDLS-bft/bdls/crypto/blake2b"
 	"github.com/BDLS-bft/bdls/crypto/btcec"
 
-	proto "github.com/gogo/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 // ErrPubKey will be returned if error found while decoding message's public key
@@ -41,8 +40,6 @@ func (t *PubKeyAxis) MarshalTo(data []byte) (n int, err error) {
 	copy(data, (*t)[:])
 	return SizeAxis, nil
 }
-
-
 
 // Size implements protobuf Size
 func (t *PubKeyAxis) Size() int { return SizeAxis }
@@ -102,12 +99,14 @@ func (sp *SignedProto) Hash() []byte {
 	}
 
 	// write X & Y
-	_, err = hash.Write(sp.X[:])
+	xAxis := normalizeAxis(sp.X)
+	_, err = hash.Write(xAxis)
 	if err != nil {
 		panic(err)
 	}
 
-	_, err = hash.Write(sp.Y[:])
+	yAxis := normalizeAxis(sp.Y)
+	_, err = hash.Write(yAxis)
 	if err != nil {
 		panic(err)
 	}
@@ -144,8 +143,10 @@ func (sp *SignedProto) Sign(m *Message, signer Signer) {
 	sp.Message = bts
 
 	pubKey := signer.PublicKey()
-	pubKey.X.FillBytes(sp.X[:])
-	pubKey.Y.FillBytes(sp.Y[:])
+	sp.X = make([]byte, SizeAxis)
+	sp.Y = make([]byte, SizeAxis)
+	pubKey.X.FillBytes(sp.X)
+	pubKey.Y.FillBytes(sp.Y)
 	hash := sp.Hash()
 
 	// sign the message
@@ -166,10 +167,10 @@ func (sp *SignedProto) Verify(curve elliptic.Curve) bool {
 	pubkey.Curve = curve
 	pubkey.X = &X
 	pubkey.Y = &Y
-	X.SetBytes(sp.X[:])
-	Y.SetBytes(sp.Y[:])
-	R.SetBytes(sp.R[:])
-	S.SetBytes(sp.S[:])
+	X.SetBytes(normalizeAxis(sp.X))
+	Y.SetBytes(normalizeAxis(sp.Y))
+	R.SetBytes(sp.R)
+	S.SetBytes(sp.S)
 
 	return ecdsa.Verify(&pubkey, hash, &R, &S)
 }
@@ -178,7 +179,19 @@ func (sp *SignedProto) Verify(curve elliptic.Curve) bool {
 func (sp *SignedProto) PublicKey(curve elliptic.Curve) *ecdsa.PublicKey {
 	pubkey := new(ecdsa.PublicKey)
 	pubkey.Curve = curve
-	pubkey.X = big.NewInt(0).SetBytes(sp.X[:])
-	pubkey.Y = big.NewInt(0).SetBytes(sp.Y[:])
+	pubkey.X = big.NewInt(0).SetBytes(normalizeAxis(sp.X))
+	pubkey.Y = big.NewInt(0).SetBytes(normalizeAxis(sp.Y))
 	return pubkey
+}
+
+func normalizeAxis(axis []byte) []byte {
+	if len(axis) == SizeAxis {
+		return axis
+	}
+	buf := make([]byte, SizeAxis)
+	if len(axis) > SizeAxis {
+		axis = axis[len(axis)-SizeAxis:]
+	}
+	copy(buf[SizeAxis-len(axis):], axis)
+	return buf
 }

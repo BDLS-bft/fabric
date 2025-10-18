@@ -9,10 +9,10 @@ package bdls
 import (
 	//protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/BDLS-bft/bdls"
-	gogoproto "github.com/gogo/protobuf/proto"
 	ab "github.com/hyperledger/fabric-protos-go/orderer"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
+	googleproto "google.golang.org/protobuf/proto"
 )
 
 //go:generate mockery -dir . -name MessageReceiver -case underscore -output mocks
@@ -65,15 +65,16 @@ func (in *Ingress) OnConsensus(channel string, sender uint64, request *ab.Consen
 	in.Logger.Debugf("Consensus payload from %d on channel %s: len=%d bytes", sender, channel, len(payload))
 
 	signed := &bdls.SignedProto{}
-	if err := gogoproto.Unmarshal(payload, signed); err != nil {
+	if err := googleproto.Unmarshal(payload, signed); err != nil {
 		in.Logger.Warningf("Failed to decode BDLS signed payload from %d on channel %s: %v", sender, channel, err)
+		return errors.Wrap(err, "malformed BDLS consensus payload")
+	}
+
+	msg := &bdls.Message{}
+	if err := googleproto.Unmarshal(signed.Message, msg); err != nil {
+		in.Logger.Warningf("Failed to decode BDLS message body from %d on channel %s: %v", sender, channel, err)
 	} else {
-		msg := &bdls.Message{}
-		if err := gogoproto.Unmarshal(signed.Message, msg); err != nil {
-			in.Logger.Warningf("Failed to decode BDLS message body from %d on channel %s: %v", sender, channel, err)
-		} else {
-			in.Logger.Debugf("Consensus message from %d on channel %s: type=%s height=%d round=%d", sender, channel, msg.Type.String(), msg.Height, msg.Round)
-		}
+		in.Logger.Debugf("Consensus message from %d on channel %s: type=%s height=%d round=%d", sender, channel, msg.Type.String(), msg.Height, msg.Round)
 	}
 
 	receiver.HandleMessage(sender, payload)

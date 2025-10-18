@@ -31,9 +31,9 @@ import (
 
 	types2 "github.com/hyperledger/fabric/orderer/common/types"
 
-	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/hyperledger/fabric-protos-go/msp"
 	//"github.com/hyperledger/fabric-protos-go/orderer/etcdraft"
+	legacyproto "github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/flogging"
@@ -44,6 +44,7 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/sha3"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/BDLS-bft/bdls/crypto/btcec"
 )
@@ -220,8 +221,13 @@ type bdlsEgress struct {
 
 // Broadcast sends a message to all remote nodes.
 func (e *bdlsEgress) Broadcast(msg []byte) {
+	signed := &bdls.SignedProto{}
+	if err := proto.Unmarshal(msg, signed); err != nil {
+		e.Logger.Warnf("Failed to decode BDLS consensus message for broadcast: %v", err)
+		return
+	}
 	req := &orderer.ConsensusRequest{
-		Payload: msg,
+		Payload: protoutil.MarshalOrPanic(signed),
 		Channel: e.Channel,
 	}
 
@@ -247,8 +253,14 @@ func (e *bdlsEgress) SendTo(targetID bdls.Identity, msg []byte) {
 		return
 	}
 
+	signed := &bdls.SignedProto{}
+	if err := proto.Unmarshal(msg, signed); err != nil {
+		e.Logger.Warnf("Failed to decode BDLS consensus message for %d: %v", destID, err)
+		return
+	}
+
 	req := &orderer.ConsensusRequest{
-		Payload: msg,
+		Payload: protoutil.MarshalOrPanic(signed),
 		Channel: e.Channel,
 	}
 
@@ -845,11 +857,11 @@ func (c *Chain) HandleMessage(sender uint64, m []byte) {
 		return
 	}
 	signed := &bdls.SignedProto{}
-	if err := gogoproto.Unmarshal(m, signed); err != nil {
+	if err := proto.Unmarshal(m, signed); err != nil {
 		c.Logger.Warnf("Failed to decode BDLS signed message from %d: %v", sender, err)
 	} else {
 		msg := &bdls.Message{}
-		if err := gogoproto.Unmarshal(signed.Message, msg); err != nil {
+		if err := proto.Unmarshal(signed.Message, msg); err != nil {
 			c.Logger.Warnf("Failed to decode BDLS message body from %d: %v", sender, err)
 		} else {
 			stateLen := 0
@@ -859,8 +871,10 @@ func (c *Chain) HandleMessage(sender uint64, m []byte) {
 			c.Logger.Infof("Message from %d: type=%s height=%d round=%d stateLen=%d", sender, msg.Type.String(), msg.Height, msg.Round, stateLen)
 		}
 		identity := bdls.Identity{}
-		copy(identity[:bdls.SizeAxis], signed.X[:])
-		copy(identity[bdls.SizeAxis:], signed.Y[:])
+		xAxis := normalizeBDLSAxis(signed.X)
+		yAxis := normalizeBDLSAxis(signed.Y)
+		copy(identity[:bdls.SizeAxis], xAxis)
+		copy(identity[bdls.SizeAxis:], yAxis)
 		if nodeID, ok := c.identityMap[identity]; ok {
 			c.Logger.Debugf("Resolved identity for sender %d as nodeID %d", sender, nodeID)
 		} else {
@@ -894,6 +908,18 @@ func (c *Chain) HandleRequest(sender uint64, req []byte) {
 	default:
 		c.Logger.Warnf("Request queue full; dropping request from %d", sender)
 	}
+}
+
+func normalizeBDLSAxis(axis []byte) []byte {
+	if len(axis) == bdls.SizeAxis {
+		return axis
+	}
+	buf := make([]byte, bdls.SizeAxis)
+	if len(axis) > bdls.SizeAxis {
+		axis = axis[len(axis)-bdls.SizeAxis:]
+	}
+	copy(buf[bdls.SizeAxis-len(axis):], axis)
+	return buf
 }
 
 func pemToDER(pemBytes []byte, id uint64, certType string, logger *flogging.FabricLogger) ([]byte, error) {
@@ -936,7 +962,7 @@ func publicKeyFromIdentity(identity []byte, logger *flogging.FabricLogger) (*ecd
 
 func publicKeyFromSerializedIdentity(serialized []byte, logger *flogging.FabricLogger) (*ecdsa.PublicKey, error) {
 	sid := &msp.SerializedIdentity{}
-	if err := gogoproto.Unmarshal(serialized, sid); err != nil {
+	if err := legacyproto.Unmarshal(serialized, sid); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal serialized identity")
 	}
 	return publicKeyFromIdentity(sid.IdBytes, logger)
