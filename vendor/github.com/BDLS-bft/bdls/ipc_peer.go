@@ -50,7 +50,7 @@ func NewIPCPeer(c *Consensus, latency time.Duration) *IPCPeer {
 }
 
 // GetPublicKey returns peer's public key as identity
-func (p *IPCPeer) GetPublicKey() *ecdsa.PublicKey { return &p.c.privateKey.PublicKey }
+func (p *IPCPeer) GetPublicKey() *ecdsa.PublicKey { return p.c.signer.PublicKey() }
 
 // RemoteAddr implements Peer.RemoteAddr, the address is p's memory address
 func (p *IPCPeer) RemoteAddr() net.Addr { return fakeAddress(fmt.Sprint(unsafe.Pointer(p))) }

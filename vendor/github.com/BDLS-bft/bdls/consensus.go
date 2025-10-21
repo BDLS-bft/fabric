@@ -5,15 +5,15 @@ import (
 	"container/list"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"net"
+	"errors"
+	"math/big"
 	"sort"
+	"sync"
 	"time"
 
-	//"fmt"
 	"github.com/BDLS-bft/bdls/crypto/blake2b"
 
-
-	proto "github.com/gogo/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -27,7 +27,31 @@ const (
 
 	// MaxConsensusLatency is the ceiling of latencies
 	MaxConsensusLatency = 10 * time.Second
+
+	// DefaultTickInterval is the cadence used to advance Consensus timeouts when
+	// no custom interval is supplied.
+	DefaultTickInterval = 20 * time.Millisecond
 )
+
+var (
+	// ErrConsensusAlreadyRunning is returned when Start is invoked while the
+	// internal ticker goroutine is active.
+	ErrConsensusAlreadyRunning = errors.New("bdls: consensus ticker already running")
+	// ErrTickerFactoryNil is returned when no ticker factory is configured.
+	ErrTickerFactoryNil = errors.New("bdls: ticker factory is nil")
+)
+
+type timeTicker struct {
+	*time.Ticker
+}
+
+func (t *timeTicker) Chan() <-chan time.Time {
+	return t.C
+}
+
+func defaultTickerFactory(interval time.Duration) Ticker {
+	return &timeTicker{time.NewTicker(interval)}
+}
 
 type (
 	// State is the data to participant in consensus. This could be candidate
@@ -109,7 +133,7 @@ func newConsensusRound(round uint64, c *Consensus) *consensusRound {
 // to prevent multiple proposals attack.
 func (r *consensusRound) AddRoundChange(sp *SignedProto, m *Message) bool {
 	for k := range r.roundChanges {
-		if r.roundChanges[k].Signed.X == sp.X && r.roundChanges[k].Signed.Y == sp.Y {
+		if bytes.Equal(r.roundChanges[k].Signed.X, sp.X) && bytes.Equal(r.roundChanges[k].Signed.Y, sp.Y) {
 			return false
 		}
 	}
@@ -120,9 +144,9 @@ func (r *consensusRound) AddRoundChange(sp *SignedProto, m *Message) bool {
 
 // FindRoundChange will try to find a <roundchange> from a given participant,
 // and returns index, -1 if not found
-func (r *consensusRound) FindRoundChange(X PubKeyAxis, Y PubKeyAxis) int {
+func (r *consensusRound) FindRoundChange(X []byte, Y []byte) int {
 	for k := range r.roundChanges {
-		if r.roundChanges[k].Signed.X == X && r.roundChanges[k].Signed.Y == Y {
+		if bytes.Equal(r.roundChanges[k].Signed.X, X) && bytes.Equal(r.roundChanges[k].Signed.Y, Y) {
 			return k
 		}
 	}
@@ -165,7 +189,7 @@ func (r *consensusRound) RoundChangeStates() []State {
 // also, messages will be de-duplicated to prevent multiple proposals attack.
 func (r *consensusRound) AddCommit(sp *SignedProto, m *Message) bool {
 	for k := range r.commits {
-		if r.commits[k].Signed.X == sp.X && r.commits[k].Signed.Y == sp.Y {
+		if bytes.Equal(r.commits[k].Signed.X, sp.X) && bytes.Equal(r.commits[k].Signed.Y, sp.Y) {
 			return false
 		}
 	}
@@ -238,6 +262,13 @@ func (r *consensusRound) GetMaxProposed() (s State, count int) {
 	return maxState.Message.State, maxCount
 }
 
+// Transmitter defines the interface for sending messages to other participants.
+// This decouples the consensus logic from the underlying network transport.
+type Transmitter interface {
+	SendTo(targetID Identity, msg []byte)
+	Broadcast(msg []byte)
+}
+
 // Consensus implements a deterministic BDLS consensus protocol.
 //
 // It has no internal clocking or IO, and no parallel processing.
@@ -279,7 +310,7 @@ type Consensus struct {
 	stateHash func(State) StateHash
 
 	// private key
-	privateKey *ecdsa.PrivateKey
+	signer Signer
 	// my publickey coodinate
 	identity Identity
 	// curve retrieved from private key
@@ -288,8 +319,7 @@ type Consensus struct {
 	// transmission delay
 	latency time.Duration
 
-	// all connected peers
-	peers []PeerInterface
+	comm Transmitter
 
 	// participants is the consensus group, current leader is r % quorum
 	participants []Identity
@@ -308,6 +338,17 @@ type Consensus struct {
 
 	// the last message which caused round change
 	lastRoundChangeProof []*SignedProto
+
+	deliver func(State) error
+
+	logger Logger
+
+	mu            sync.Mutex
+	tickInterval  time.Duration
+	tickerFactory TickerFactory
+	tickerStop    chan struct{}
+	tickerDone    chan struct{}
+	tickerRunning bool
 }
 
 // NewConsensus creates a BDLS consensus object to participant in consensus procedure,
@@ -334,9 +375,23 @@ func (c *Consensus) init(config *Config) {
 	c.stateValidate = config.StateValidate
 	c.messageValidator = config.MessageValidator
 	c.messageOutCallback = config.MessageOutCallback
-	c.privateKey = config.PrivateKey
+	c.signer = config.Signer
 	c.pubKeyToIdentity = config.PubKeyToIdentity
 	c.enableCommitUnicast = config.EnableCommitUnicast
+	c.comm = config.Comm
+	c.deliver = config.Deliver
+	c.logger = config.Logger
+
+	if config.TickInterval <= 0 {
+		c.tickInterval = DefaultTickInterval
+	} else {
+		c.tickInterval = config.TickInterval
+	}
+	if config.NewTicker != nil {
+		c.tickerFactory = config.NewTicker
+	} else {
+		c.tickerFactory = defaultTickerFactory
+	}
 
 	// if config has not set hash function, use the default
 	if c.stateHash == nil {
@@ -346,8 +401,9 @@ func (c *Consensus) init(config *Config) {
 	if c.pubKeyToIdentity == nil {
 		c.pubKeyToIdentity = DefaultPubKeyToIdentity
 	}
-	c.identity = c.pubKeyToIdentity(&c.privateKey.PublicKey)
-	c.curve = c.privateKey.Curve
+	pubKey := c.signer.PublicKey()
+	c.identity = c.pubKeyToIdentity(pubKey)
+	c.curve = pubKey.Curve
 
 	// initial default parameters settings
 	c.latency = DefaultConsensusLatency
@@ -367,7 +423,74 @@ func (c *Consensus) init(config *Config) {
 	c.numIdentities = len(ids)
 }
 
-//  calculates roundchangeDuration
+// Start launches the internal ticker goroutine that drives consensus timeouts.
+func (c *Consensus) Start() error {
+	c.mu.Lock()
+	if c.tickerRunning {
+		c.mu.Unlock()
+		return ErrConsensusAlreadyRunning
+	}
+	if c.tickerFactory == nil {
+		c.mu.Unlock()
+		return ErrTickerFactoryNil
+	}
+	ticker := c.tickerFactory(c.tickInterval)
+	if ticker == nil {
+		c.mu.Unlock()
+		return ErrTickerFactoryNil
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	c.tickerStop = stop
+	c.tickerDone = done
+	c.tickerRunning = true
+	c.mu.Unlock()
+
+	go c.runTicker(ticker, stop, done)
+	return nil
+}
+
+// Stop terminates the internal ticker goroutine. It is safe to call multiple times.
+func (c *Consensus) Stop() {
+	c.mu.Lock()
+	if !c.tickerRunning {
+		c.mu.Unlock()
+		return
+	}
+	stop := c.tickerStop
+	done := c.tickerDone
+	c.tickerStop = nil
+	c.tickerDone = nil
+	c.mu.Unlock()
+
+	close(stop)
+	<-done
+}
+
+func (c *Consensus) runTicker(ticker Ticker, stop <-chan struct{}, done chan<- struct{}) {
+	defer func() {
+		ticker.Stop()
+		c.mu.Lock()
+		c.tickerRunning = false
+		c.mu.Unlock()
+		close(done)
+	}()
+	for {
+		select {
+		case <-stop:
+			return
+		case now, ok := <-ticker.Chan():
+			if !ok {
+				return
+			}
+			if err := c.Update(now); err != nil && c.logger != nil {
+				c.logger.Debugf("Consensus update returned error: %v", err)
+			}
+		}
+	}
+}
+
+// calculates roundchangeDuration
 func (c *Consensus) roundchangeDuration(round uint64) time.Duration {
 	d := 2 * c.latency * (1 << round)
 	if d > MaxConsensusLatency {
@@ -376,7 +499,7 @@ func (c *Consensus) roundchangeDuration(round uint64) time.Duration {
 	return d
 }
 
-//  calculates collectDuration
+// calculates collectDuration
 func (c *Consensus) collectDuration(round uint64) time.Duration {
 	d := 2 * c.latency * (1 << round)
 	if d > MaxConsensusLatency {
@@ -385,7 +508,7 @@ func (c *Consensus) collectDuration(round uint64) time.Duration {
 	return d
 }
 
-//  calculates lockDuration
+// calculates lockDuration
 func (c *Consensus) lockDuration(round uint64) time.Duration {
 	d := 4 * c.latency * (1 << round)
 	if d > MaxConsensusLatency {
@@ -468,7 +591,7 @@ func (c *Consensus) verifyMessage(signed *SignedProto) (*Message, error) {
 	/*
 		// public key validation
 		p := defaultCurve.Params().P
-		x := new(big.Int).SetBytes(signed.X[:])
+		x := new(big.Int).SetBytes(normalizeAxis(signed.X))
 		y := new(big.Int).SetBytes(signed.Y[:])
 		if x.Cmp(p) >= 0 || y.Cmp(p) >= 0 {
 			return nil, ErrMessageSignature
@@ -478,8 +601,21 @@ func (c *Consensus) verifyMessage(signed *SignedProto) (*Message, error) {
 		}
 	*/
 
-	// as public key is proven , we don't have to verify the public key
-	if !signed.Verify(c.curve) {
+	digest := signed.Hash()
+	if hasher, ok := c.signer.(interface {
+		HashDigest([]byte) []byte
+	}); ok {
+		digest = hasher.HashDigest(digest)
+	}
+
+	pubKey := signed.PublicKey(c.curve)
+	var R, S big.Int
+	R.SetBytes(signed.R)
+	S.SetBytes(signed.S)
+	if !ecdsa.Verify(pubKey, digest, &R, &S) {
+		if c.logger != nil {
+			c.logger.Warnf("Signature verification failed")
+		}
 		return nil, ErrMessageSignature
 	}
 
@@ -766,6 +902,9 @@ func (c *Consensus) verifyCommitMessage(m *Message) error {
 // the consensus core must be correctly initialized to validate.
 // the targetState is to compare the target state enclosed in decide message
 func (c *Consensus) ValidateDecideMessage(bts []byte, targetState []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	signed, err := DecodeSignedMessage(bts)
 	if err != nil {
 		return err
@@ -919,6 +1058,9 @@ func (c *Consensus) broadcastRoundChange() {
 		data = c.maximalUnconfirmed()
 		// if still null, return
 		if data == nil {
+			if c.logger != nil {
+				c.logger.Debugf("[H:%d R:%d] broadcastRoundChange skipped (no proposal)", c.latestHeight+1, c.currentRound.RoundNumber)
+			}
 			return
 		}
 	}
@@ -928,6 +1070,9 @@ func (c *Consensus) broadcastRoundChange() {
 	m.Height = c.latestHeight + 1
 	m.Round = c.currentRound.RoundNumber
 	m.State = data
+	if c.logger != nil {
+		c.logger.Debugf("[H:%d R:%d] broadcastRoundChange with state len=%d", c.latestHeight+1, c.currentRound.RoundNumber, len(data))
+	}
 	c.broadcast(&m)
 	c.currentRound.RoundChangeSent = true
 	//log.Println("broadcast:<roundchange>")
@@ -1024,7 +1169,7 @@ func (c *Consensus) broadcast(m *Message) *SignedProto {
 	// sign
 	sp := new(SignedProto)
 	sp.Version = ProtocolVersion
-	sp.Sign(m, c.privateKey)
+	sp.Sign(m, c.signer)
 
 	// message callback
 	if c.messageOutCallback != nil {
@@ -1037,9 +1182,7 @@ func (c *Consensus) broadcast(m *Message) *SignedProto {
 	}
 
 	// send to peers one by one
-	for _, peer := range c.peers {
-		_ = peer.Send(out)
-	}
+	c.comm.Broadcast(out)
 
 	// we also need to send this message to myself
 	c.loopback = append(c.loopback, out)
@@ -1051,7 +1194,7 @@ func (c *Consensus) sendTo(m *Message, leader Identity) {
 	// sign
 	sp := new(SignedProto)
 	sp.Version = ProtocolVersion
-	sp.Sign(m, c.privateKey)
+	sp.Sign(m, c.signer)
 
 	// message callback
 	if c.messageOutCallback != nil {
@@ -1071,23 +1214,7 @@ func (c *Consensus) sendTo(m *Message, leader Identity) {
 	}
 
 	// otherwise, find and transmit to the leader
-	for _, peer := range c.peers {
-		if pk := peer.GetPublicKey(); pk != nil {
-			coord := c.pubKeyToIdentity(pk)
-			if coord == leader {
-				// we do not return here to avoid missing re-connected peer.
-				peer.Send(out)
-			}
-		}
-	}
-}
-
-// propagate broadcasts signed message UNCHANGED to peers.
-func (c *Consensus) propagate(bts []byte) {
-	// send to peers one by one
-	for _, peer := range c.peers {
-		_ = peer.Send(bts)
-	}
+	c.comm.SendTo(leader, out)
 }
 
 // getRound returns the consensus round with given idx, create one if not exists
@@ -1156,6 +1283,7 @@ func (c *Consensus) roundLeader(round uint64) Identity {
 // heightSync changes current height to the given height with state
 // resets all fields to this new height.
 func (c *Consensus) heightSync(height uint64, round uint64, s State, now time.Time) {
+	c.deliver(s)
 	c.latestHeight = height // set height
 	c.latestRound = round   // set round
 	c.latestState = s       // set state
@@ -1179,11 +1307,27 @@ func (c *Consensus) Propose(s State) {
 		return
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.proposeLocked(s)
+}
+
+func (c *Consensus) proposeLocked(s State) {
+	if s == nil {
+		return
+	}
+
 	sHash := c.stateHash(s)
 	for k := range c.unconfirmed {
 		if c.stateHash(c.unconfirmed[k]) == sHash {
+			if c.logger != nil {
+				c.logger.Debugf("[H:%d] state len=%d already enqueued", c.latestHeight+1, len(s))
+			}
 			return
 		}
+	}
+	if c.logger != nil {
+		c.logger.Debugf("[H:%d] enqueue proposal state len=%d (unconfirmed=%d)", c.latestHeight+1, len(s), len(c.unconfirmed))
 	}
 	c.unconfirmed = append(c.unconfirmed, s)
 }
@@ -1191,6 +1335,9 @@ func (c *Consensus) Propose(s State) {
 // ReceiveMessage processes incoming consensus messages, and returns error
 // if message cannot be processed for some reason.
 func (c *Consensus) ReceiveMessage(bts []byte, now time.Time) (err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	// messages broadcasted to myself may be queued recursively, and
 	// we only process these messages in defer to avoid side effects
 	// while processing.
@@ -1223,6 +1370,11 @@ func (c *Consensus) receiveMessage(bts []byte, now time.Time) error {
 	m, err := c.verifyMessage(signed)
 	if err != nil {
 		return err
+	}
+
+	if c.logger != nil {
+		senderID := c.pubKeyToIdentity(signed.PublicKey(c.curve))
+		c.logger.Infof("[H:%d R:%d] Received message %s from %v", c.latestHeight+1, m.Round, m.Type, senderID)
 	}
 
 	// callback for incoming message
@@ -1278,11 +1430,27 @@ func (c *Consensus) receiveMessage(bts []byte, now time.Time) error {
 		// NOTE: getRound must not be called before previous checks done
 		// in order to prevent OOM attack by creating round objects.
 		round := c.getRound(m.Round, false)
+		stateLen := 0
+		if m.State != nil {
+			stateLen = len(m.State)
+		}
+		if c.logger != nil {
+			c.logger.Debugf("[H:%d R:%d] Processing RoundChange from %v stateLen=%d", c.latestHeight+1, m.Round, c.pubKeyToIdentity(signed.PublicKey(c.curve)), stateLen)
+		}
+		shouldCacheState := m.State != nil
 		// as we cleared all lower rounds message, we handle the message
 		// at round m.Round. if this message is not duplicated in m.Round,
 		// round records message along with its signed <roundchange> message
 		// to provide proofs in the future.
-		if round.AddRoundChange(signed, m) {
+		added := round.AddRoundChange(signed, m)
+		if added {
+			if c.logger != nil {
+				c.logger.Debugf("[H:%d R:%d] Added roundchange from %v (state len=%d)", c.latestHeight+1, m.Round, c.pubKeyToIdentity(signed.PublicKey(c.curve)), len(m.State))
+			}
+			// Cache the proposed state so followers can rebroadcast it during round change.
+			if shouldCacheState {
+				c.proposeLocked(m.State)
+			}
 			// During any time of the protocol, if a the Pacemaker of Pj (including Pi)
 			// receives at least 2t + 1 round-change message (including round-change
 			// message from himself) for round r (which is larger than its current round
@@ -1330,6 +1498,8 @@ func (c *Consensus) receiveMessage(bts []byte, now time.Time) error {
 					round.MaxProposedState, round.MaxProposedCount = round.GetMaxProposed()
 				}
 			}
+		} else if shouldCacheState && c.logger != nil {
+			c.logger.Debugf("[H:%d R:%d] Roundchange from %v duplicate, cache skipped (state len=%d)", c.latestHeight+1, m.Round, c.pubKeyToIdentity(signed.PublicKey(c.curve)), len(m.State))
 		}
 
 	case MessageType_Select:
@@ -1352,7 +1522,7 @@ func (c *Consensus) receiveMessage(bts []byte, now time.Time) error {
 			c.lockReleaseTimeout = now.Add(c.commitDuration(m.Round))
 			c.lockRelease()
 			// add to Blockj
-			c.Propose(m.State)
+			c.proposeLocked(m.State)
 		}
 
 	case MessageType_Lock:
@@ -1472,7 +1642,7 @@ func (c *Consensus) receiveMessage(bts []byte, now time.Time) error {
 
 		// propagate this <decide> message to my neighbour.
 		// NOTE: verifyDecideMessage() can stop broadcast storm.
-		c.propagate(bts)
+		c.comm.Broadcast(bts)
 		// passive confirmation from the leader.
 		c.heightSync(m.Height, m.Round, m.State, now)
 		// non-leader starts waiting for rcTimeout
@@ -1500,6 +1670,12 @@ func (c *Consensus) receiveMessage(bts []byte, now time.Time) error {
 // Update will process timing event for the state machine, callers
 // from outside MUST call this function periodically(like 20ms).
 func (c *Consensus) Update(now time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.updateLocked(now)
+}
+
+func (c *Consensus) updateLocked(now time.Time) error {
 	// as in ReceiveMessage, we also need to handle broadcasting messages
 	// directed to myself.
 	defer func() {
@@ -1518,6 +1694,9 @@ func (c *Consensus) Update(now time.Time) error {
 		}
 
 		if now.After(c.rcTimeout) {
+			if c.logger != nil {
+				c.logger.Debugf("[H:%d R:%d] RoundChange timeout", c.latestHeight+1, c.currentRound.RoundNumber)
+			}
 			c.broadcastRoundChange()
 			c.broadcastResync() // we also need to broadcast the round change event message if there is any
 			c.rcTimeout = now.Add(c.roundchangeDuration(c.currentRound.RoundNumber))
@@ -1529,6 +1708,9 @@ func (c *Consensus) Update(now time.Time) error {
 		// leader's collection, we perform periodically check for <lock> or <select>
 		// check to see if I'm the leader of this round to perform collect timeout
 		leaderKey := c.roundLeader(c.currentRound.RoundNumber)
+		if c.logger != nil {
+			c.logger.Debugf("[H:%d R:%d] In stageLock. Leader is %v, I am %v", c.latestHeight+1, c.currentRound.RoundNumber, leaderKey, c.identity)
+		}
 		if leaderKey == c.identity {
 			// check if we have enough 2t+1 <roundchange> to lock B',
 			// which B' != NULL
@@ -1550,7 +1732,7 @@ func (c *Consensus) Update(now time.Time) error {
 				// enqueue all received non-NULL data
 				states := c.currentRound.RoundChangeStates()
 				for k := range states {
-					c.Propose(states[k])
+					c.proposeLocked(states[k])
 				}
 
 				// broadcast this <select>, leader itself will receive this message too.
@@ -1562,6 +1744,9 @@ func (c *Consensus) Update(now time.Time) error {
 				return nil
 			}
 		} else if now.After(c.lockTimeout) {
+			if c.logger != nil {
+				c.logger.Debugf("[H:%d R:%d] Lock timeout", c.latestHeight+1, c.currentRound.RoundNumber)
+			}
 			// non-leader's lock timeout, enters commit status and set timeout
 			c.currentRound.Stage = stageCommit
 			c.commitTimeout = now.Add(c.commitDuration(c.currentRound.RoundNumber))
@@ -1573,6 +1758,9 @@ func (c *Consensus) Update(now time.Time) error {
 		}
 
 		if now.After(c.commitTimeout) {
+			if c.logger != nil {
+				c.logger.Debugf("[H:%d R:%d] Commit timeout", c.latestHeight+1, c.currentRound.RoundNumber)
+			}
 			c.currentRound.Stage = stageLockRelease
 			c.lockReleaseTimeout = now.Add(c.lockReleaseDuration(c.currentRound.RoundNumber))
 			c.lockRelease()
@@ -1583,6 +1771,9 @@ func (c *Consensus) Update(now time.Time) error {
 			panic("lockRelease stage entered, but lockReleaseTimout not set")
 		}
 		if now.After(c.lockReleaseTimeout) {
+			if c.logger != nil {
+				c.logger.Debugf("[H:%d R:%d] LockRelease timeout", c.latestHeight+1, c.currentRound.RoundNumber)
+			}
 			c.currentRound.Stage = stageRoundChanging
 			// move to round +1 when lock release has timeout
 			c.switchRound(c.currentRound.RoundNumber + 1)
@@ -1597,18 +1788,31 @@ func (c *Consensus) Update(now time.Time) error {
 // It's caller's responsibility to check if ReceiveMessage() has
 // created a new height.
 func (c *Consensus) CurrentState() (height uint64, round uint64, data State) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.latestHeight, c.latestRound, c.latestState
 }
 
 // CurrentProof returns current <decide> message for current height
-func (c *Consensus) CurrentProof() *SignedProto { return c.latestProof }
+func (c *Consensus) CurrentProof() *SignedProto {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.latestProof
+}
 
 // SetLatency sets participants expected latency for consensus core
-func (c *Consensus) SetLatency(latency time.Duration) { c.latency = latency }
+func (c *Consensus) SetLatency(latency time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.latency = latency
+}
 
 // HasProposed checks whether some state has been proposed via <roundchange>
 // <lock> or left in c.unconfirmed
 func (c *Consensus) HasProposed(state State) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	stateHash := c.stateHash(state)
 	for elem := c.rounds.Front(); elem != nil; elem = elem.Next() {
 		cr := elem.Value.(*consensusRound)
@@ -1636,6 +1840,9 @@ func (c *Consensus) HasProposed(state State) bool {
 
 // ReceiveMessage input to core incoming consensus messages, and returns error
 func (c *Consensus) SubmitRequest(bts []byte, now time.Time) (err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	// messages broadcasted to myself may be queued recursively, and
 	// we only process these messages in defer to avoid side effects
 	// while processing.
@@ -1649,29 +1856,4 @@ func (c *Consensus) SubmitRequest(bts []byte, now time.Time) (err error) {
 	}()
 
 	return c.receiveMessage(bts, now)
-}
-
-// Join adds a peer to consensus for message delivery, a peer is
-// identified by its address.
-func (c *Consensus) Join(p PeerInterface) bool {
-	for k := range c.peers {
-		if p.RemoteAddr().String() == c.peers[k].RemoteAddr().String() {
-			return false
-		}
-	}
-
-	c.peers = append(c.peers, p)
-	return true
-}
-
-// Leave removes a peer from consensus, identified by its address
-func (c *Consensus) Leave(addr net.Addr) bool {
-	for k := range c.peers {
-		if addr.String() == c.peers[k].RemoteAddr().String() {
-			copy(c.peers[k:], c.peers[k+1:])
-			c.peers = c.peers[:len(c.peers)-1]
-			return true
-		}
-	}
-	return false
 }

@@ -8,18 +8,18 @@ package bdls
 
 import (
 	//protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
-	protos "github.com/BDLS-bft/bdls"
-	"github.com/golang/protobuf/proto"
+	"github.com/BDLS-bft/bdls"
 	ab "github.com/hyperledger/fabric-protos-go/orderer"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
+	googleproto "google.golang.org/protobuf/proto"
 )
 
 //go:generate mockery -dir . -name MessageReceiver -case underscore -output mocks
 
 // MessageReceiver receives messages
 type MessageReceiver interface {
-	HandleMessage(sender uint64, m *protos.Message)
+	HandleMessage(sender uint64, m []byte)
 	HandleRequest(sender uint64, req []byte)
 }
 
@@ -33,6 +33,7 @@ type ReceiverGetter interface {
 
 type WarningLogger interface {
 	Warningf(template string, args ...interface{})
+	Debugf(template string, args ...interface{})
 }
 
 // Ingress dispatches Submit and Step requests to the designated per chain instances
@@ -43,17 +44,40 @@ type Ingress struct {
 
 // OnConsensus notifies the Ingress for a reception of a StepRequest from a given sender on a given channel
 func (in *Ingress) OnConsensus(channel string, sender uint64, request *ab.ConsensusRequest) error {
+	if request == nil {
+		in.Logger.Warningf("Received nil consensus request from %d on channel %s", sender, channel)
+		return errors.Errorf("nil consensus request")
+	}
+
 	receiver := in.ChainSelector.ReceiverByChain(channel)
 	if receiver == nil {
 		in.Logger.Warningf("An attempt to send a consensus request to a non existing channel (%s) was made by %d", channel, sender)
 		return errors.Errorf("channel %s doesn't exist", channel)
 	}
-	msg := &protos.Message{}
-	if err := proto.Unmarshal(request.Payload, msg); err != nil {
-		in.Logger.Warningf("Malformed message: %v", err)
-		return errors.Wrap(err, "malformed message")
+
+	payload := request.Payload
+	if len(payload) == 0 {
+		in.Logger.Debugf("Consensus request from %d on channel %s has empty payload", sender, channel)
+		receiver.HandleMessage(sender, payload)
+		return nil
 	}
-	receiver.HandleMessage(sender, msg)
+
+	in.Logger.Debugf("Consensus payload from %d on channel %s: len=%d bytes", sender, channel, len(payload))
+
+	signed := &bdls.SignedProto{}
+	if err := googleproto.Unmarshal(payload, signed); err != nil {
+		in.Logger.Warningf("Failed to decode BDLS signed payload from %d on channel %s: %v", sender, channel, err)
+		return errors.Wrap(err, "malformed BDLS consensus payload")
+	}
+
+	msg := &bdls.Message{}
+	if err := googleproto.Unmarshal(signed.Message, msg); err != nil {
+		in.Logger.Warningf("Failed to decode BDLS message body from %d on channel %s: %v", sender, channel, err)
+	} else {
+		in.Logger.Debugf("Consensus message from %d on channel %s: type=%s height=%d round=%d", sender, channel, msg.Type.String(), msg.Height, msg.Round)
+	}
+
+	receiver.HandleMessage(sender, payload)
 	return nil
 }
 

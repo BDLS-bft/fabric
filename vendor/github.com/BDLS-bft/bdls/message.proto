@@ -2,7 +2,7 @@
 syntax = "proto3";
 package bdls;
 
-import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+option go_package = "github.com/BDLS-bft/bdls";
 
 // SignedProto defines a message with signature and it's publickey
 message SignedProto {
@@ -10,8 +10,8 @@ message SignedProto {
 	// the Message encoded raw protobuf in bytes
 	bytes Message=2;
 	// signer's public key
-	bytes x = 3 [(gogoproto.customtype) = "PubKeyAxis", (gogoproto.nullable) = false];
-	bytes y = 4 [(gogoproto.customtype) = "PubKeyAxis", (gogoproto.nullable) = false];
+	bytes x = 3;
+	bytes y = 4;
 	// signature r,s for prefix+messages+version+x+y above
 	bytes r = 5;
 	bytes s = 6;

@@ -3,17 +3,15 @@ package bdls
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"math/big"
 
-
 	"github.com/BDLS-bft/bdls/crypto/blake2b"
 	"github.com/BDLS-bft/bdls/crypto/btcec"
 
-	proto "github.com/gogo/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 // ErrPubKey will be returned if error found while decoding message's public key
@@ -43,21 +41,17 @@ func (t *PubKeyAxis) MarshalTo(data []byte) (n int, err error) {
 	return SizeAxis, nil
 }
 
-// Unmarshal implements protobuf Unmarshal
-func (t *PubKeyAxis) Unmarshal(data []byte) error {
-	// more than 32 bytes, illegal axis
-	if len(data) > SizeAxis {
-		return ErrPubKey
-	}
-
-	// if data is less than 32 bytes, we MUST keep the leading 0 zeros.
-	off := SizeAxis - len(data)
-	copy((*t)[off:], data)
-	return nil
-}
-
 // Size implements protobuf Size
 func (t *PubKeyAxis) Size() int { return SizeAxis }
+
+// Unmarshal implements protobuf Unmarshal
+func (t *PubKeyAxis) Unmarshal(data []byte) error {
+	if len(data) > SizeAxis {
+		data = data[len(data)-SizeAxis:]
+	}
+	copy((*t)[SizeAxis-len(data):], data)
+	return nil
+}
 
 // String representation of Axis
 func (t *PubKeyAxis) String() string {
@@ -77,15 +71,8 @@ func DefaultPubKeyToIdentity(pubkey *ecdsa.PublicKey) (ret Identity) {
 	var X PubKeyAxis
 	var Y PubKeyAxis
 
-	err := X.Unmarshal(pubkey.X.Bytes())
-	if err != nil {
-		panic(err)
-	}
-
-	err = Y.Unmarshal(pubkey.Y.Bytes())
-	if err != nil {
-		panic(err)
-	}
+	pubkey.X.FillBytes(X[:])
+	pubkey.Y.FillBytes(Y[:])
 
 	copy(ret[:SizeAxis], X[:])
 	copy(ret[SizeAxis:], Y[:])
@@ -112,12 +99,14 @@ func (sp *SignedProto) Hash() []byte {
 	}
 
 	// write X & Y
-	_, err = hash.Write(sp.X[:])
+	xAxis := normalizeAxis(sp.X)
+	_, err = hash.Write(xAxis)
 	if err != nil {
 		panic(err)
 	}
 
-	_, err = hash.Write(sp.Y[:])
+	yAxis := normalizeAxis(sp.Y)
+	_, err = hash.Write(yAxis)
 	if err != nil {
 		panic(err)
 	}
@@ -137,8 +126,14 @@ func (sp *SignedProto) Hash() []byte {
 	return hash.Sum(nil)
 }
 
-// Sign the message with a private key
-func (sp *SignedProto) Sign(m *Message, privateKey *ecdsa.PrivateKey) {
+// Signer defines an interface for signing a message.
+type Signer interface {
+	Sign(digest []byte) (r, s *big.Int, err error)
+	PublicKey() *ecdsa.PublicKey
+}
+
+// Sign the message with a signer
+func (sp *SignedProto) Sign(m *Message, signer Signer) {
 	bts, err := proto.Marshal(m)
 	if err != nil {
 		panic(err)
@@ -147,18 +142,15 @@ func (sp *SignedProto) Sign(m *Message, privateKey *ecdsa.PrivateKey) {
 	sp.Version = ProtocolVersion
 	sp.Message = bts
 
-	err = sp.X.Unmarshal(privateKey.PublicKey.X.Bytes())
-	if err != nil {
-		panic(err)
-	}
-	err = sp.Y.Unmarshal(privateKey.PublicKey.Y.Bytes())
-	if err != nil {
-		panic(err)
-	}
+	pubKey := signer.PublicKey()
+	sp.X = make([]byte, SizeAxis)
+	sp.Y = make([]byte, SizeAxis)
+	pubKey.X.FillBytes(sp.X)
+	pubKey.Y.FillBytes(sp.Y)
 	hash := sp.Hash()
 
 	// sign the message
-	r, s, err := ecdsa.Sign(rand.Reader, privateKey, hash)
+	r, s, err := signer.Sign(hash)
 	if err != nil {
 		panic(err)
 	}
@@ -175,10 +167,10 @@ func (sp *SignedProto) Verify(curve elliptic.Curve) bool {
 	pubkey.Curve = curve
 	pubkey.X = &X
 	pubkey.Y = &Y
-	X.SetBytes(sp.X[:])
-	Y.SetBytes(sp.Y[:])
-	R.SetBytes(sp.R[:])
-	S.SetBytes(sp.S[:])
+	X.SetBytes(normalizeAxis(sp.X))
+	Y.SetBytes(normalizeAxis(sp.Y))
+	R.SetBytes(sp.R)
+	S.SetBytes(sp.S)
 
 	return ecdsa.Verify(&pubkey, hash, &R, &S)
 }
@@ -187,7 +179,19 @@ func (sp *SignedProto) Verify(curve elliptic.Curve) bool {
 func (sp *SignedProto) PublicKey(curve elliptic.Curve) *ecdsa.PublicKey {
 	pubkey := new(ecdsa.PublicKey)
 	pubkey.Curve = curve
-	pubkey.X = big.NewInt(0).SetBytes(sp.X[:])
-	pubkey.Y = big.NewInt(0).SetBytes(sp.Y[:])
+	pubkey.X = big.NewInt(0).SetBytes(normalizeAxis(sp.X))
+	pubkey.Y = big.NewInt(0).SetBytes(normalizeAxis(sp.Y))
 	return pubkey
+}
+
+func normalizeAxis(axis []byte) []byte {
+	if len(axis) == SizeAxis {
+		return axis
+	}
+	buf := make([]byte, SizeAxis)
+	if len(axis) > SizeAxis {
+		axis = axis[len(axis)-SizeAxis:]
+	}
+	copy(buf[SizeAxis-len(axis):], axis)
+	return buf
 }
