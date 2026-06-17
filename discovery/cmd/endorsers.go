@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/hyperledger/fabric-protos-go-apiv2/discovery"
@@ -132,7 +133,7 @@ func (parser *EndorserResponseParser) ParseResponse(channel string, res ServiceR
 
 	ccQueryRes := rawResponse.Results[0].GetCcQueryRes()
 	if ccQueryRes == nil {
-		return errors.Errorf("server returned response of unexpected type: %v", reflect.TypeOf(rawResponse.Results[0]))
+		return errors.Errorf("server returned response of unexpected type: %v", reflect.TypeFor[*discovery.QueryResult]())
 	}
 
 	jsonBytes, _ := json.MarshalIndent(parseEndorsementDescriptors(ccQueryRes.Content), "", "\t")
@@ -147,21 +148,11 @@ type chaincodesAndCollections struct {
 }
 
 func (ec *chaincodesAndCollections) noPrivateReads(chaincodeName string) bool {
-	for _, cc := range *ec.NoPrivReads {
-		if chaincodeName == cc {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(*ec.NoPrivReads, chaincodeName)
 }
 
 func (ec *chaincodesAndCollections) existsInChaincodes(chaincodeName string) bool {
-	for _, cc := range *ec.Chaincodes {
-		if chaincodeName == cc {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(*ec.Chaincodes, chaincodeName)
 }
 
 func (ec *chaincodesAndCollections) parseInput() (map[string][]string, error) {

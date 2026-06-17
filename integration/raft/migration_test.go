@@ -9,13 +9,13 @@ package raft
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
-	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger-labs/SmartBFT/pkg/types"
 	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	protosorderer "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
@@ -28,6 +28,7 @@ import (
 	"github.com/hyperledger/fabric/integration/ordererclient"
 	"github.com/hyperledger/fabric/internal/configtxlator/update"
 	"github.com/hyperledger/fabric/protoutil"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -40,7 +41,7 @@ import (
 var _ = Describe("ConsensusTypeMigration", func() {
 	var (
 		testDir string
-		client  *docker.Client
+		client  dcli.APIClient
 		network *nwo.Network
 
 		o1Proc, o2Proc, o3Proc, o4Proc ifrit.Process
@@ -56,7 +57,7 @@ var _ = Describe("ConsensusTypeMigration", func() {
 		testDir, err = os.MkdirTemp("", "consensus-type-migration")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -297,7 +298,7 @@ var _ = Describe("ConsensusTypeMigration", func() {
 
 			// In maintenance mode deliver requests are open to those entities that satisfy the /Channel/Orderer/Readers policy
 			By("1) Verify: delivery request from peer is blocked")
-			err := checkPeerDeliverRequest(o1, peer, network, "testchannel")
+			err := checkDeliverRequest(o1, peer, network, "testchannel")
 			Expect(err).To(MatchError(errors.New("FORBIDDEN")))
 
 			// === Step 2: config update on standard channel, State=NORMAL, abort ===
@@ -312,7 +313,7 @@ var _ = Describe("ConsensusTypeMigration", func() {
 			Expect(std1BlockNum).To(Equal(std1EntryBlockNum + 1))
 
 			By("2) Verify: standard channel delivery requests from peer unblocked")
-			err = checkPeerDeliverRequest(o1, peer, network, "testchannel")
+			err = checkDeliverRequest(o1, peer, network, "testchannel")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("2) Verify: Normal TX's on standard channel are permitted again")
@@ -336,7 +337,7 @@ var _ = Describe("ConsensusTypeMigration", func() {
 			validateConsensusTypeValue(consensusTypeValue, "etcdraft", protosorderer.ConsensusType_STATE_MAINTENANCE)
 
 			By("3) Verify: delivery request from peer is blocked")
-			err = checkPeerDeliverRequest(o1, peer, network, "testchannel")
+			err = checkDeliverRequest(o1, peer, network, "testchannel")
 			Expect(err).To(MatchError(errors.New("FORBIDDEN")))
 
 			By("3) Verify: Normal TX's on standard channel are blocked")
@@ -373,7 +374,8 @@ var _ = Describe("ConsensusTypeMigration", func() {
 			By("1) Config update on standard channel, changing both ConsensusType State & Type is forbidden")
 			assertTransitionFailed(network, peer, o1, "testchannel",
 				"etcdraft", protosorderer.ConsensusType_STATE_NORMAL,
-				"BFT", nil, protosorderer.ConsensusType_STATE_MAINTENANCE, 1)
+				"BFT", nil, protosorderer.ConsensusType_STATE_MAINTENANCE, 1,
+				"config update for existing channel did not pass maintenance checks: config transaction inspection failed: config update contains changes to groups within the Orderer group")
 
 			// === Step 2: ===
 			By("2) Config update on standard channel, both ConsensusType State & some other value is forbidden")
@@ -381,7 +383,7 @@ var _ = Describe("ConsensusTypeMigration", func() {
 				"etcdraft", protosorderer.ConsensusType_STATE_NORMAL,
 				"etcdraft", nil, protosorderer.ConsensusType_STATE_MAINTENANCE, 0)
 			updateConfigWithBatchTimeout(updatedConfig)
-			updateOrdererConfigFailed(network, o1, "testchannel", config, updatedConfig, peer, o1)
+			nwo.UpdateOrdererConfigFails(network, o1, "testchannel", config, updatedConfig, "config update for existing channel did not pass maintenance checks: config transaction inspection failed: config update contain more then just the ConsensusType value in the Orderer group", peer, o1)
 
 			// === Step 3: ===
 			By("3) Config update on standard channel, State=MAINTENANCE, enter maintenance-mode")
@@ -401,36 +403,42 @@ var _ = Describe("ConsensusTypeMigration", func() {
 			By("4) Config update on standard channel, change ConsensusType.Type to unsupported type, forbidden")
 			assertTransitionFailed(network, peer, o1, "testchannel",
 				"etcdraft", protosorderer.ConsensusType_STATE_MAINTENANCE,
-				"hesse", nil, protosorderer.ConsensusType_STATE_MAINTENANCE, 0)
+				"hesse", nil, protosorderer.ConsensusType_STATE_MAINTENANCE, 0,
+				"config update for existing channel did not pass maintenance checks: config transaction inspection failed: attempted to change consensus type from etcdraft to hesse, transition not supported")
 
 			// === Step 5: ===
 			By("5) Config update on standard channel, change ConsensusType.Type and State, forbidden")
 			assertTransitionFailed(network, peer, o1, "testchannel",
 				"etcdraft", protosorderer.ConsensusType_STATE_MAINTENANCE,
-				"BFT", nil, protosorderer.ConsensusType_STATE_NORMAL, 1)
+				"BFT", nil, protosorderer.ConsensusType_STATE_NORMAL, 1,
+				"config update for existing channel did not pass maintenance checks: config transaction inspection failed: config update contains changes to groups within the Orderer group")
 
 			// === Step 6: Config update on standard channel, changing ConsensusType.Type with invalid bft metadata ===
 			By("6) changing ConsensusType.Type with invalid BFT metadata")
 			invalidBftMetadata := protoutil.MarshalOrPanic(prepareInvalidBftMetadata())
 			assertTransitionFailed(network, peer, o1, "testchannel",
 				"etcdraft", protosorderer.ConsensusType_STATE_MAINTENANCE,
-				"BFT", invalidBftMetadata, protosorderer.ConsensusType_STATE_MAINTENANCE, 1)
+				"BFT", invalidBftMetadata, protosorderer.ConsensusType_STATE_MAINTENANCE, 1,
+				"config update for existing channel did not pass maintenance checks: config transaction inspection failed: invalid BFT metadata configuration")
 
 			By("6) changing ConsensusType.Type with missing BFT metadata")
 			assertTransitionFailed(network, peer, o1, "testchannel",
 				"etcdraft", protosorderer.ConsensusType_STATE_MAINTENANCE,
-				"BFT", nil, protosorderer.ConsensusType_STATE_MAINTENANCE, 1)
+				"BFT", nil, protosorderer.ConsensusType_STATE_MAINTENANCE, 1,
+				"config update for existing channel did not pass maintenance checks: config transaction inspection failed: invalid BFT metadata configuration")
 
 			By("6) changing ConsensusType.Type with missing bft consenters mapping")
 			bftMetadata := protoutil.MarshalOrPanic(prepareBftMetadata())
 			assertTransitionFailed(network, peer, o1, "testchannel",
 				"etcdraft", protosorderer.ConsensusType_STATE_MAINTENANCE,
-				"BFT", bftMetadata, protosorderer.ConsensusType_STATE_MAINTENANCE, 0)
+				"BFT", bftMetadata, protosorderer.ConsensusType_STATE_MAINTENANCE, 0,
+				"config update for existing channel did not pass maintenance checks: config transaction inspection failed: invalid BFT consenter mapping configuration: Invalid new config: bft consenters are missing")
 
 			By("6) changing ConsensusType.Type with corrupt bft consenters mapping")
 			assertTransitionFailed(network, peer, o1, "testchannel",
 				"etcdraft", protosorderer.ConsensusType_STATE_MAINTENANCE,
-				"BFT", bftMetadata, protosorderer.ConsensusType_STATE_MAINTENANCE, 2)
+				"BFT", bftMetadata, protosorderer.ConsensusType_STATE_MAINTENANCE, 2,
+				"config update for existing channel did not pass maintenance checks: config transaction inspection failed: invalid BFT consenter mapping configuration: No suitable BFT consenter for Raft consenter")
 
 			// === Step 7: Config update on standard channel, changing both ConsensusType.Type and other value is permitted ===
 			By("7) changing both ConsensusType.Type and other value is permitted")
@@ -464,7 +472,7 @@ var _ = Describe("ConsensusTypeMigration", func() {
 				"BFT", protosorderer.ConsensusType_STATE_MAINTENANCE,
 				"BFT", nil, protosorderer.ConsensusType_STATE_NORMAL, 1)
 			updateConfigWithBatchTimeout(updatedConfig)
-			updateOrdererConfigFailed(network, o1, "testchannel", config, updatedConfig, peer, o1)
+			nwo.UpdateOrdererConfigFails(network, o1, "testchannel", config, updatedConfig, "config transaction inspection failed: config update contain more then just the ConsensusType value in the Orderer group", peer, o1)
 		})
 
 		// Note:
@@ -491,7 +499,7 @@ var _ = Describe("ConsensusTypeMigration", func() {
 
 			// In maintenance mode deliver requests are open to those entities that satisfy the /Channel/Orderer/Readers policy
 			By("1) Verify: delivery request from peer is blocked")
-			err := checkPeerDeliverRequest(o1, peer, network, "testchannel")
+			err := checkDeliverRequest(o1, peer, network, "testchannel")
 			Expect(err).To(MatchError(errors.New("FORBIDDEN")))
 
 			// === Step 2: config update on standard channel, State=MAINTENANCE, type=etcdraft ===
@@ -521,14 +529,7 @@ var _ = Describe("ConsensusTypeMigration", func() {
 
 			Eventually(o1Proc.Ready(), network.EventuallyTimeout).Should(BeClosed())
 
-			assertBlockReception(
-				map[string]int{
-					"testchannel": int(chan1BlockNum),
-				},
-				[]*nwo.Orderer{o1},
-				peer,
-				network,
-			)
+			assertBlockReception(map[string]int{"testchannel": int(chan1BlockNum)}, []*nwo.Orderer{o1}, network)
 
 			Eventually(o1Runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Raft leader changed: 0 -> "))
 			Eventually(o1Proc.Ready(), network.EventuallyTimeout).Should(BeClosed())
@@ -597,33 +598,41 @@ func updateConfigWithBatchTimeout(updatedConfig *common.Config) {
 	}
 }
 
-func checkPeerDeliverRequest(o *nwo.Orderer, submitter *nwo.Peer, network *nwo.Network, channelName string) error {
-	c := commands.ChannelFetch{
-		ChannelID:  channelName,
-		Block:      "newest",
-		OutputFile: "/dev/null",
-		Orderer:    network.OrdererAddress(o, nwo.ListenPort),
-	}
+func checkDeliverRequest(orderer *nwo.Orderer, submitter *nwo.Peer, network *nwo.Network, channelName string) error {
+	signer := network.PeerUserSigner(submitter, "User1")
 
-	sess, err := network.PeerUserSession(submitter, "User1", c)
+	denv, err := protoutil.CreateSignedEnvelope(
+		common.HeaderType_DELIVER_SEEK_INFO,
+		channelName,
+		signer,
+		&protosorderer.SeekInfo{
+			Behavior: protosorderer.SeekInfo_BLOCK_UNTIL_READY,
+			Start: &protosorderer.SeekPosition{
+				Type: &protosorderer.SeekPosition_Newest{
+					Newest: &protosorderer.SeekNewest{},
+				},
+			},
+			Stop: &protosorderer.SeekPosition{
+				Type: &protosorderer.SeekPosition_Newest{
+					Newest: &protosorderer.SeekNewest{},
+				},
+			},
+		},
+		0,
+		0,
+	)
 	Expect(err).NotTo(HaveOccurred())
-	Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit())
-	sessErr := string(sess.Err.Contents())
-	sessExitCode := sess.ExitCode()
-	if sessExitCode != 0 && strings.Contains(sessErr, "FORBIDDEN") {
-		return errors.New("FORBIDDEN")
-	}
-	if sessExitCode == 0 && strings.Contains(sessErr, "Received block: ") {
-		return nil
+
+	_, err = ordererclient.Deliver(network, orderer, denv)
+	if err != nil {
+		if strings.Contains(err.Error(), "FORBIDDEN") {
+			return errors.New("FORBIDDEN")
+		} else {
+			return fmt.Errorf("Unexpected result: Err=%v", err)
+		}
 	}
 
-	return fmt.Errorf("Unexpected result: ExitCode=%d, Err=%s", sessExitCode, sessErr)
-}
-
-func updateOrdererConfigFailed(n *nwo.Network, orderer *nwo.Orderer, channel string, current, updated *common.Config, peer *nwo.Peer, additionalSigners ...*nwo.Orderer) {
-	sess := nwo.UpdateOrdererConfigSession(n, orderer, channel, current, updated, peer, additionalSigners...)
-	Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(1))
-	Expect(sess.Err).NotTo(gbytes.Say("Successfully submitted channel update"))
+	return nil
 }
 
 func updateOrdererEndpointsConfigFails(n *nwo.Network, orderer *nwo.Orderer, channel string, current, updated *common.Config, peer *nwo.Peer, additionalSigners ...*nwo.Peer) {
@@ -667,15 +676,20 @@ func updateOrdererEndpointsConfigFails(n *nwo.Network, orderer *nwo.Orderer, cha
 	Expect(err).NotTo(HaveOccurred())
 	Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
 
-	sess, err = n.PeerAdminSession(peer, commands.ChannelUpdate{
-		ChannelID:  channel,
-		Orderer:    n.OrdererAddress(orderer, nwo.ListenPort),
-		File:       updateFile,
-		ClientAuth: n.ClientAuthRequired,
-	})
+	updateEnvelopeBytes, err := os.ReadFile(updateFile)
 	Expect(err).NotTo(HaveOccurred())
-	Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(1))
-	Expect(sess.Err).To(gbytes.Say("error applying config update to existing channel 'testchannel': initializing channelconfig failed: global OrdererAddresses are not allowed with V3_0 capability, use org specific addresses only"))
+
+	updateEnvelope := &common.Envelope{}
+	err = proto.Unmarshal(updateEnvelopeBytes, updateEnvelope)
+	Expect(err).NotTo(HaveOccurred())
+
+	ready := make(chan struct{})
+	go func() {
+		defer GinkgoRecover()
+		nwo.UpdateWithStatus(n, orderer, channel, updateEnvelope, http.StatusBadRequest, "error applying config update to existing channel 'testchannel': initializing channelconfig failed: global OrdererAddresses are not allowed with V3_0 capability, use org specific addresses only")
+		close(ready)
+	}()
+	Eventually(ready, n.EventuallyTimeout).Should(BeClosed())
 }
 
 func prepareTransition(
@@ -704,12 +718,14 @@ func assertTransitionFailed(
 	network *nwo.Network, peer *nwo.Peer, orderer *nwo.Orderer, channel string, // Auxiliary
 	fromConsensusType string, fromMigState protosorderer.ConsensusType_State, // From
 	toConsensusType string, toConsensusMetadata []byte, toMigState protosorderer.ConsensusType_State, toConsenterMapping int, // To
+	errStr string,
 ) {
 	current, updated := prepareTransition(
 		network, peer, orderer, channel,
 		fromConsensusType, fromMigState,
-		toConsensusType, toConsensusMetadata, toMigState, toConsenterMapping)
-	updateOrdererConfigFailed(network, orderer, channel, current, updated, peer, orderer)
+		toConsensusType, toConsensusMetadata, toMigState, toConsenterMapping,
+	)
+	nwo.UpdateOrdererConfigFails(network, orderer, channel, current, updated, errStr, peer, orderer)
 }
 
 func assertBlockCreation(network *nwo.Network, orderer *nwo.Orderer, peer *nwo.Peer, channelID string, blkNum uint64) {
@@ -831,7 +847,7 @@ func computeConsenterMappings(network *nwo.Network) []*common.Consenter {
 	return consenters
 }
 
-func CreateBroadcastEnvelope(n *nwo.Network, entity interface{}, channel string, data []byte) *common.Envelope {
+func CreateBroadcastEnvelope(n *nwo.Network, entity any, channel string, data []byte) *common.Envelope {
 	var signer *nwo.SigningIdentity
 	switch creator := entity.(type) {
 	case *nwo.Peer:
@@ -979,15 +995,20 @@ func updateOrdererOrgEndpointsConfigSucceeds(n *nwo.Network, orderer *nwo.Ordere
 	Expect(err).NotTo(HaveOccurred())
 	Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
 
-	sess, err = n.OrdererAdminSession(orderer, peer, commands.ChannelUpdate{
-		ChannelID:  channel,
-		Orderer:    n.OrdererAddress(orderer, nwo.ListenPort),
-		File:       updateFile,
-		ClientAuth: n.ClientAuthRequired,
-	})
+	updateEnvelopeBytes, err := os.ReadFile(updateFile)
 	Expect(err).NotTo(HaveOccurred())
-	Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
-	Expect(sess.Err).To(gbytes.Say("Successfully submitted channel update"))
+
+	updateEnvelope := &common.Envelope{}
+	err = proto.Unmarshal(updateEnvelopeBytes, updateEnvelope)
+	Expect(err).NotTo(HaveOccurred())
+
+	ready := make(chan struct{})
+	go func() {
+		defer GinkgoRecover()
+		nwo.Update(n, orderer, channel, updateEnvelope)
+		close(ready)
+	}()
+	Eventually(ready, n.EventuallyTimeout).Should(BeClosed())
 }
 
 // UpdateOrdererConfigFails computes, signs, and submits a configuration update
@@ -1000,20 +1021,18 @@ func UpdateOrdererConfigFails(n *nwo.Network, orderer *nwo.Orderer, channel stri
 
 	nwo.ComputeUpdateOrdererConfig(updateFile, n, channel, current, updated, submitter, additionalSigners...)
 
-	Eventually(func() bool {
-		sess, err := n.OrdererAdminSession(orderer, submitter, commands.ChannelUpdate{
-			ChannelID:  channel,
-			Orderer:    n.OrdererAddress(orderer, nwo.ListenPort),
-			File:       updateFile,
-			ClientAuth: n.ClientAuthRequired,
-		})
-		Expect(err).NotTo(HaveOccurred())
+	updateEnvelopeBytes, err := os.ReadFile(updateFile)
+	Expect(err).NotTo(HaveOccurred())
 
-		sess.Wait(n.EventuallyTimeout)
-		if sess.ExitCode() != 0 {
-			return false
-		}
+	updateEnvelope := &common.Envelope{}
+	err = proto.Unmarshal(updateEnvelopeBytes, updateEnvelope)
+	Expect(err).NotTo(HaveOccurred())
 
-		return strings.Contains(string(sess.Err.Contents()), "Successfully submitted channel update")
-	}, n.EventuallyTimeout).Should(BeFalse())
+	ready := make(chan struct{})
+	go func() {
+		defer GinkgoRecover()
+		nwo.UpdateWithStatus(n, orderer, channel, updateEnvelope, http.StatusBadRequest, "error applying config update to existing channel 'testchannel': consensus metadata update for channel config update is invalid: illegal orderer config detected during consensus metadata validation: endpoints of org OrdererOrg are missing")
+		close(ready)
+	}()
+	Eventually(ready, n.EventuallyTimeout).Should(BeClosed())
 }

@@ -122,14 +122,16 @@ func createCfgBlockWithSupportedCapabilities(t *testing.T) *cb.Block {
 				MaxMessageCount:   65535,
 				AbsoluteMaxBytes:  1024000000,
 				PreferredMaxBytes: 1024000000,
-			}),
+			},
+		),
 		ModPolicy: AdminsPolicyKey,
 	}
 	config.ChannelGroup.Groups[OrdererGroupKey].Values[BatchTimeoutKey] = &cb.ConfigValue{
 		Value: protoutil.MarshalOrPanic(
 			&ab.BatchTimeout{
 				Timeout: "2s",
-			}),
+			},
+		),
 		ModPolicy: AdminsPolicyKey,
 	}
 	ordererCapabilities := make(map[string]bool)
@@ -142,7 +144,8 @@ func createCfgBlockWithSupportedCapabilities(t *testing.T) *cb.Block {
 		Value: protoutil.MarshalOrPanic(
 			&ab.ConsensusType{
 				Type: "solo",
-			}),
+			},
+		),
 		ModPolicy: AdminsPolicyKey,
 	}
 
@@ -236,14 +239,16 @@ func createCfgBlockWithUnsupportedCapabilities(t *testing.T) *cb.Block {
 				MaxMessageCount:   65535,
 				AbsoluteMaxBytes:  1024000000,
 				PreferredMaxBytes: 1024000000,
-			}),
+			},
+		),
 		ModPolicy: AdminsPolicyKey,
 	}
 	config.ChannelGroup.Groups[OrdererGroupKey].Values[BatchTimeoutKey] = &cb.ConfigValue{
 		Value: protoutil.MarshalOrPanic(
 			&ab.BatchTimeout{
 				Timeout: "2s",
-			}),
+			},
+		),
 		ModPolicy: AdminsPolicyKey,
 	}
 	ordererCapabilities := make(map[string]bool)
@@ -256,7 +261,8 @@ func createCfgBlockWithUnsupportedCapabilities(t *testing.T) *cb.Block {
 		Value: protoutil.MarshalOrPanic(
 			&ab.ConsensusType{
 				Type: "solo",
-			}),
+			},
+		),
 		ModPolicy: AdminsPolicyKey,
 	}
 
@@ -351,7 +357,7 @@ func TestMarshalEtcdRaftMetadata(t *testing.T) {
 		inputCerts[i], _ = os.ReadFile(fmt.Sprintf("testdata/tls-client-%d.pem", i+1))
 	}
 
-	for i := 0; i < len(inputCerts)-1; i++ {
+	for i := range len(inputCerts) - 1 {
 		require.NotEqual(t, outputCerts[i+1], outputCerts[i], "expected extracted certs to differ from each other")
 	}
 }

@@ -32,7 +32,7 @@ func TestLedgerMgmt(t *testing.T) {
 
 	numLedgers := 10
 	ledgers := make([]ledger.PeerLedger, numLedgers)
-	for i := 0; i < numLedgers; i++ {
+	for i := range numLedgers {
 		cid := constructTestLedgerID(i)
 		gb, _ := test.MakeGenesisBlock(cid)
 		l, err := ledgerMgr.CreateLedger(cid, gb)
@@ -42,7 +42,7 @@ func TestLedgerMgmt(t *testing.T) {
 
 	ids, _ := ledgerMgr.GetLedgerIDs()
 	require.Len(t, ids, numLedgers)
-	for i := 0; i < numLedgers; i++ {
+	for i := range numLedgers {
 		require.Equal(t, constructTestLedgerID(i), ids[i])
 	}
 
@@ -173,13 +173,13 @@ func TestConcurrentCreateLedgerFromGB(t *testing.T) {
 
 	var err error
 	gbs := make([]*common.Block, 0, 5)
-	for i := 0; i < len(gbs); i++ {
+	for i := range gbs {
 		gbs[i], err = test.MakeGenesisBlock(fmt.Sprintf("l%d", i))
 		require.NoError(t, err)
 	}
 
 	// verify CreateLedger (from genesisblock) can be called concurrently
-	for i := 0; i < len(gbs); i++ {
+	for i := range gbs {
 		gb := gbs[i]
 		ledgerID := fmt.Sprintf("l%d", i)
 		go func() {
@@ -197,8 +197,7 @@ func TestConcurrentCreateLedgerFromGB(t *testing.T) {
 }
 
 func TestConcurrentCreateLedgerFromSnapshot(t *testing.T) {
-	initializer, ledgerMgr, cleanup := setup(t)
-	defer cleanup()
+	initializer, ledgerMgr, _ := setup(t)
 
 	// generate 2 snapshots for 2 channels
 	channelID1 := "testcreatefromsnapshot1"
@@ -232,7 +231,7 @@ func TestConcurrentCreateLedgerFromSnapshot(t *testing.T) {
 
 	waitCh <- struct{}{}
 	ledgerCreated := func() bool {
-		status := ledgerMgr.JoinBySnapshotStatus()
+		status := ledgerMgr2.JoinBySnapshotStatus()
 		return !status.InProgress && status.BootstrappingSnapshotDir == ""
 	}
 	require.Eventually(t, ledgerCreated, time.Minute, time.Second)

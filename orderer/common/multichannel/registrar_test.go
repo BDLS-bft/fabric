@@ -132,7 +132,7 @@ func newLedger(rlf blockledger.Factory, chainID string, genesisBlockSys *cb.Bloc
 
 func testMessageOrderAndRetrieval(maxMessageCount uint32, chainID string, chainSupport *ChainSupport, lr blockledger.ReadWriter, t *testing.T) {
 	messages := make([]*cb.Envelope, maxMessageCount)
-	for i := uint32(0); i < maxMessageCount; i++ {
+	for i := range maxMessageCount {
 		messages[i] = makeNormalTx(chainID, int(i))
 	}
 	for _, message := range messages {
@@ -142,7 +142,7 @@ func testMessageOrderAndRetrieval(maxMessageCount uint32, chainID string, chainS
 	defer it.Close()
 	block, status := it.Next()
 	require.Equal(t, cb.Status_SUCCESS, status, "Could not retrieve block")
-	for i := uint32(0); i < maxMessageCount; i++ {
+	for i := range maxMessageCount {
 		require.True(t, proto.Equal(messages[i], protoutil.ExtractEnvelopeOrPanic(block, int(i))), "Block contents wrong at index %d", i)
 	}
 }
@@ -158,7 +158,7 @@ func TestConfigTx(t *testing.T) {
 		tmpdir := t.TempDir()
 
 		_, rl := newLedgerAndFactory(tmpdir, "testchannelid", genesisBlockSys)
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			rl.Append(blockledger.CreateNextBlock(rl, []*cb.Envelope{makeNormalTx("testchannelid", i)}))
 		}
 		rl.Append(blockledger.CreateNextBlock(rl, []*cb.Envelope{makeConfigTx("testchannelid", 5)}))
@@ -249,7 +249,8 @@ func TestNewRegistrar(t *testing.T) {
 
 		info, err := manager.ChannelInfo("my-raft-channel")
 		require.NoError(t, err)
-		require.Equal(t,
+		require.Equal(
+			t,
 			types.ChannelInfo{Name: "my-raft-channel", URL: "", ConsensusRelation: "consenter", Status: "active", Height: 1},
 			info,
 		)
@@ -333,7 +334,8 @@ func TestRegistrar_Initialize(t *testing.T) {
 
 		info, err := manager.ChannelInfo("my-raft-channel")
 		require.NoError(t, err)
-		require.Equal(t,
+		require.Equal(
+			t,
 			types.ChannelInfo{Name: "my-raft-channel", URL: "", ConsensusRelation: "consenter", Status: "active", Height: 1},
 			info,
 		)
@@ -367,7 +369,8 @@ func TestRegistrar_Initialize(t *testing.T) {
 
 		info, err := manager.ChannelInfo("my-raft-channel")
 		require.NoError(t, err)
-		require.Equal(t,
+		require.Equal(
+			t,
 			types.ChannelInfo{Name: "my-raft-channel", URL: "", ConsensusRelation: "follower", Status: "active", Height: 1},
 			info,
 		)
@@ -402,7 +405,8 @@ func TestRegistrar_Initialize(t *testing.T) {
 		list := manager.ChannelList()
 		require.Nil(t, list.SystemChannel)
 
-		require.Equal(t,
+		require.Equal(
+			t,
 			types.ChannelList{
 				SystemChannel: nil,
 				Channels:      []types.ChannelInfoShort{{Name: "my-raft-channel", URL: ""}},
@@ -412,7 +416,8 @@ func TestRegistrar_Initialize(t *testing.T) {
 
 		info, err := manager.ChannelInfo("my-raft-channel")
 		require.NoError(t, err)
-		require.Equal(t,
+		require.Equal(
+			t,
 			types.ChannelInfo{Name: "my-raft-channel", URL: "", ConsensusRelation: "follower", Status: "onboarding", Height: 1},
 			info,
 		)
@@ -1331,6 +1336,215 @@ func TestRegistrar_UpdateChannel(t *testing.T) {
 	})
 }
 
+func TestRegistrar_FetchBlock(t *testing.T) {
+	var (
+		tmpdir              string
+		tlsCA               tlsgen.CA
+		confAppRaft         *genesisconfig.Profile
+		genesisBlockAppRaft *cb.Block
+		cryptoProvider      bccsp.BCCSP
+		config              localconfig.TopLevel
+		ledgerFactory       blockledger.Factory
+		consenter           *mocks.Consenter
+		mockConsenters      map[string]consensus.Consenter
+		signer              msp.SigningIdentity
+	)
+
+	setup := func(t *testing.T) {
+		var err error
+		tmpdir = t.TempDir()
+
+		tlsCA, err = tlsgen.NewCA()
+		require.NoError(t, err)
+
+		confAppRaft = genesisconfig.Load(genesisconfig.SampleDevModeEtcdRaftProfile, configtest.GetDevConfigDir())
+		confAppRaft.Consortiums = nil
+		confAppRaft.Consortium = ""
+		generateCertificates(t, confAppRaft, tlsCA, tmpdir)
+		bootstrapper, err := encoder.NewBootstrapper(confAppRaft)
+		require.NoError(t, err, "cannot create bootstrapper")
+		genesisBlockAppRaft = bootstrapper.GenesisBlockForChannel("my-raft-channel")
+		require.NotNil(t, genesisBlockAppRaft)
+
+		cryptoProvider, err = sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
+		require.NoError(t, err)
+
+		config = localconfig.TopLevel{
+			General: localconfig.General{
+				BootstrapMethod: "none",
+				Cluster: localconfig.Cluster{
+					ReplicationBufferSize:   1,
+					ReplicationPullTimeout:  time.Microsecond,
+					ReplicationRetryTimeout: time.Microsecond,
+					ReplicationMaxRetries:   2,
+				},
+			},
+			ChannelParticipation: localconfig.ChannelParticipation{
+				Enabled: true,
+			},
+			FileLedger: localconfig.FileLedger{
+				Location: tmpdir,
+			},
+		}
+
+		ledgerFactory = newFactory(tmpdir)
+		consenter = &mocks.Consenter{}
+		consenter.HandleChainCalls(handleChainCluster)
+		mockConsenters = map[string]consensus.Consenter{confAppRaft.Orderer.OrdererType: consenter}
+
+		mspDir := configtest.GetDevMspDir()
+		mspConfig, err := msp.GetLocalMspConfig(mspDir, nil, "SampleOrg")
+		require.NoError(t, err)
+		err = mspmgmt.GetLocalMSP(factory.GetDefault()).Setup(mspConfig)
+		require.NoError(t, err)
+		signer, err = mspmgmt.GetLocalMSP(cryptoProvider).GetDefaultSigningIdentity()
+		require.NoError(t, err)
+	}
+
+	cleanup := func() {
+		ledgerFactory.Close()
+	}
+
+	t.Run("Reject fetch block when removal is occurring", func(t *testing.T) {
+		setup(t)
+		defer cleanup()
+
+		registrar := NewRegistrar(localconfig.TopLevel{}, ledgerFactory, mockCrypto(), &disabled.Provider{}, cryptoProvider, nil)
+		registrar.Initialize(mockConsenters)
+
+		registrar.pendingRemoval["some-app-channel"] = consensus.StaticStatusReporter{ConsensusRelation: types.ConsensusRelationFollower, Status: types.StatusInactive}
+
+		block, err := registrar.FetchBlock("some-app-channel", "oldest")
+		require.Equal(t, err, types.ErrChannelPendingRemoval)
+		require.Nil(t, block)
+	})
+
+	t.Run("Reject fetch block when removal previously failed", func(t *testing.T) {
+		setup(t)
+		defer cleanup()
+
+		registrar := NewRegistrar(localconfig.TopLevel{}, ledgerFactory, mockCrypto(), &disabled.Provider{}, cryptoProvider, nil)
+		registrar.Initialize(mockConsenters)
+
+		registrar.pendingRemoval["some-app-channel"] = consensus.StaticStatusReporter{ConsensusRelation: types.ConsensusRelationFollower, Status: types.StatusFailed}
+
+		block, err := registrar.FetchBlock("some-app-channel", "oldest")
+		require.Equal(t, types.ErrChannelRemovalFailure, err)
+		require.Nil(t, block)
+	})
+
+	t.Run("Reject fetch block when channel is follower", func(t *testing.T) {
+		setup(t)
+		defer cleanup()
+
+		registrar := NewRegistrar(localconfig.TopLevel{}, ledgerFactory, mockCrypto(), &disabled.Provider{}, cryptoProvider, nil)
+		registrar.Initialize(mockConsenters)
+
+		registrar.followers["some-app-channel"] = &follower.Chain{}
+
+		block, err := registrar.FetchBlock("some-app-channel", "oldest")
+		require.Equal(t, types.ErrChannelNotReady, err)
+		require.Nil(t, block)
+	})
+
+	t.Run("Reject fetch block when channel is not exist", func(t *testing.T) {
+		setup(t)
+		defer cleanup()
+
+		registrar := NewRegistrar(localconfig.TopLevel{}, ledgerFactory, mockCrypto(), &disabled.Provider{}, cryptoProvider, nil)
+		registrar.Initialize(mockConsenters)
+
+		block, err := registrar.FetchBlock("some-app-channel", "oldest")
+		require.Equal(t, types.ErrChannelNotExist, err)
+		require.Nil(t, block)
+	})
+
+	t.Run("Reject fetch block when RetrieveBlockByNumber return error", func(t *testing.T) {
+		setup(t)
+		defer cleanup()
+
+		registrar := NewRegistrar(localconfig.TopLevel{}, ledgerFactory, mockCrypto(), &disabled.Provider{}, cryptoProvider, nil)
+		registrar.Initialize(mockConsenters)
+
+		ledger := &mocks.ReadWriter{}
+		ledger.RetrieveBlockByNumberReturns(nil, errors.New("some error"))
+		cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
+		require.NoError(t, err)
+		cs := &ChainSupport{
+			ledgerResources: &ledgerResources{ReadWriter: ledger},
+			BCCSP:           cryptoProvider,
+		}
+		registrar.chains["some-app-channel"] = cs
+
+		block, err := registrar.FetchBlock("some-app-channel", "oldest")
+		require.EqualError(t, err, "some error")
+		require.Nil(t, block)
+	})
+
+	t.Run("Reject fetch block when blockId is failed", func(t *testing.T) {
+		setup(t)
+		defer cleanup()
+
+		registrar := NewRegistrar(localconfig.TopLevel{}, ledgerFactory, mockCrypto(), &disabled.Provider{}, cryptoProvider, nil)
+		registrar.Initialize(mockConsenters)
+
+		ledger := &mocks.ReadWriter{}
+		cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
+		require.NoError(t, err)
+		cs := &ChainSupport{
+			ledgerResources: &ledgerResources{ReadWriter: ledger},
+			BCCSP:           cryptoProvider,
+		}
+		registrar.chains["some-app-channel"] = cs
+
+		block, err := registrar.FetchBlock("some-app-channel", "blabla")
+		require.EqualError(t, err, "strconv.Atoi: parsing \"blabla\": invalid syntax")
+		require.Nil(t, block)
+
+		block, err = registrar.FetchBlock("some-app-channel", "1q1")
+		require.EqualError(t, err, "strconv.Atoi: parsing \"1q1\": invalid syntax")
+		require.Nil(t, block)
+	})
+
+	t.Run("Fetch block - OK", func(t *testing.T) {
+		setup(t)
+		defer cleanup()
+
+		serNode := mockCrypto()
+		serNode.SerializeCalls(signer.Serialize)
+		serNode.SignCalls(signer.Sign)
+
+		consenter.IsChannelMemberReturns(true, nil)
+		registrar := NewRegistrar(config, ledgerFactory, serNode, &disabled.Provider{}, cryptoProvider, nil)
+		fakeFields := newFakeMetricsFields()
+		registrar.channelParticipationMetrics = newFakeMetrics(fakeFields)
+
+		registrar.Initialize(mockConsenters)
+		_, err := registrar.JoinChannel("my-raft-channel", genesisBlockAppRaft)
+		require.NoError(t, err)
+
+		cs := registrar.GetChain("my-raft-channel")
+		fakeCS := &mocks.ChannelSupport{}
+		cs.Chain = fakeCS
+
+		b, err := registrar.FetchBlock("my-raft-channel", "oldest")
+		require.NoError(t, err)
+		require.NotNil(t, b)
+
+		b, err = registrar.FetchBlock("my-raft-channel", "newest")
+		require.NoError(t, err)
+		require.NotNil(t, b)
+
+		b, err = registrar.FetchBlock("my-raft-channel", "config")
+		require.NoError(t, err)
+		require.NotNil(t, b)
+
+		b, err = registrar.FetchBlock("my-raft-channel", "0")
+		require.NoError(t, err)
+		require.NotNil(t, b)
+	})
+}
+
 func checkMetrics(t *testing.T, fakeFields *fakeMetricsFields, expectedLabels []string, expectedRelation, expectedStatus, expectedCallCount int) {
 	require.Equal(t, expectedCallCount, fakeFields.fakeConsensusRelation.SetCallCount())
 	require.Equal(t, float64(expectedRelation), fakeFields.fakeConsensusRelation.SetArgsForCall(expectedCallCount-1))
@@ -1541,9 +1755,10 @@ func TestRegistrar_RemoveChannel(t *testing.T) {
 			require.Eventually(t, func() bool { return len(ledgerFactory.ChannelIDs()) == 0 }, time.Minute, time.Second)
 			require.NotContains(t, ledgerFactory.ChannelIDs(), "my-follower-raft-channel")
 
-			channelInfo, err := registrar.ChannelInfo("my-follower-raft-channel")
-			require.Equal(t, err, types.ErrChannelNotExist)
-			require.Equal(t, channelInfo, types.ChannelInfo{})
+			require.Eventually(t, func() bool {
+				channelInfo, err := registrar.ChannelInfo("my-follower-raft-channel")
+				return errors.Is(err, types.ErrChannelNotExist) && channelInfo == types.ChannelInfo{}
+			}, time.Minute, time.Second)
 		})
 	})
 
@@ -1594,7 +1809,9 @@ func TestRegistrar_RemoveChannel(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool { return len(ledgerFactory.ChannelIDs()) == 0 }, time.Minute, time.Second)
-		require.NotContains(t, registrar.ChannelList().Channels, types.ChannelInfoShort{Name: "my-raft-channel"})
+		require.Eventually(t, func() bool {
+			return assert.NotContains(t, registrar.ChannelList().Channels, types.ChannelInfoShort{Name: "my-raft-channel"})
+		}, time.Minute, time.Second)
 	})
 
 	t.Run("remove channel fails", func(t *testing.T) {
@@ -1624,13 +1841,15 @@ func TestRegistrar_RemoveChannel(t *testing.T) {
 		require.Contains(t, ledgerFactory.ChannelIDs(), "my-raft-channel")
 
 		// Confirm removal failure by checking channel status
-		channelInfo, err := registrar.ChannelInfo("my-raft-channel")
-		require.NoError(t, err)
-		require.Equal(t, channelInfo, types.ChannelInfo{
-			Name:              "my-raft-channel",
-			ConsensusRelation: types.ConsensusRelationConsenter,
-			Status:            types.StatusFailed,
-		})
+		require.Eventually(t, func() bool {
+			channelInfo, err := registrar.ChannelInfo("my-raft-channel")
+			require.NoError(t, err)
+			return types.ChannelInfo{
+				Name:              "my-raft-channel",
+				ConsensusRelation: types.ConsensusRelationConsenter,
+				Status:            types.StatusFailed,
+			} == channelInfo
+		}, time.Minute, time.Second)
 	})
 }
 
@@ -1677,7 +1896,7 @@ func TestRegistrar_ConfigBlockOrPanic(t *testing.T) {
 		})
 	})
 
-	t.Run("Panics when block referenes invalid config block", func(t *testing.T) {
+	t.Run("Panics when block references invalid config block", func(t *testing.T) {
 		block := protoutil.NewBlock(0, nil)
 		block.Metadata.Metadata[cb.BlockMetadataIndex_SIGNATURES] = protoutil.MarshalOrPanic(&cb.Metadata{
 			Value: protoutil.MarshalOrPanic(&cb.OrdererBlockMetadata{

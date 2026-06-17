@@ -225,13 +225,11 @@ func TestCertExpiration(t *testing.T) {
 	g1 := newGossipInstanceWithGRPC(0, port0, grpc0, certs0, secDialOpts0, 0, port1)
 	defer g1.Stop()
 	time.Sleep(identity.GetIdentityUsageThreshold() * 2)
-	g2 := newGossipInstanceWithGRPC(0, port1, grpc1, certs1, secDialOpts1, 0)
-	defer g2.Stop()
 
 	identities2Detect := 3
 	// Make the channel bigger than needed so goroutines won't get stuck
 	identitiesGotViaPull := make(chan struct{}, identities2Detect+100)
-	acceptIdentityPullMsgs := func(o interface{}) bool {
+	acceptIdentityPullMsgs := func(o any) bool {
 		m := o.(protoext.ReceivedMessage).GetGossipMessage()
 		if protoext.IsPullMsg(m.GossipMessage) && protoext.IsDigestMsg(m.GossipMessage) {
 			for _, dig := range m.GetDataDig().Digests {
@@ -243,7 +241,9 @@ func TestCertExpiration(t *testing.T) {
 		return false
 	}
 	g1.Accept(acceptIdentityPullMsgs, true)
-	for i := 0; i < identities2Detect; i++ {
+	g2 := newGossipInstanceWithGRPC(0, port1, grpc1, certs1, secDialOpts1, 0)
+	defer g2.Stop()
+	for range identities2Detect {
 		select {
 		case <-identitiesGotViaPull:
 		case <-time.After(time.Second * 15):

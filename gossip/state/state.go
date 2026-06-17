@@ -189,13 +189,13 @@ func NewGossipStateProvider(
 	blockingMode bool,
 	config *StateConfig,
 ) GossipStateProvider {
-	gossipChan, _ := services.Accept(func(message interface{}) bool {
+	gossipChan, _ := services.Accept(func(message any) bool {
 		// Get only data messages
 		return protoext.IsDataMsg(message.(*proto.GossipMessage)) &&
 			bytes.Equal(message.(*proto.GossipMessage).Channel, []byte(chainID))
 	}, false)
 
-	remoteStateMsgFilter := func(message interface{}) bool {
+	remoteStateMsgFilter := func(message any) bool {
 		receivedMsg := message.(protoext.ReceivedMessage)
 		msg := receivedMsg.GetGossipMessage()
 		if !(protoext.IsRemoteStateMessage(msg.GossipMessage) || msg.GetPrivateData() != nil) {
@@ -364,6 +364,7 @@ func (s *GossipStateProviderImpl) privateDataMessage(msg protoext.ReceivedMessag
 	if err := s.ledger.StorePvtData(txID, txPvtRwSetWithConfig, pvtDataMsg.Payload.PrivateSimHeight); err != nil {
 		s.logger.Errorf("Wasn't able to persist private data for collection %s, due to %s", collectionName, err)
 		msg.Ack(err) // Sending NACK to indicate failure of storing collection
+		return
 	}
 
 	msg.Ack(nil)
@@ -389,16 +390,17 @@ func (s *GossipStateProviderImpl) directMessage(msg protoext.ReceivedMessage) {
 
 	if incoming.GetStateRequest() != nil {
 		if len(s.stateRequestCh) < s.config.StateChannelSize {
-			// Forward state request to the channel, if there are too
-			// many message of state request ignore to avoid flooding.
-			s.stateRequestCh <- msg
+			select {
+			case s.stateRequestCh <- msg:
+			case <-s.stopCh:
+			}
 		}
 	} else if incoming.GetStateResponse() != nil {
-		// If no state transfer procedure activate there is
-		// no reason to process the message
 		if atomic.LoadInt32(&s.stateTransferActive) == 1 {
-			// Send signal of state response message
-			s.stateResponseCh <- msg
+			select {
+			case s.stateResponseCh <- msg:
+			case <-s.stopCh:
+			}
 		}
 	}
 }
@@ -773,7 +775,9 @@ func (s *GossipStateProviderImpl) addPayload(payload *proto.Payload, blockingMod
 		time.Sleep(enqueueRetryInterval)
 	}
 
-	s.payloads.Push(payload)
+	if !s.payloads.Push(payload) {
+		s.logger.Debugf("Payload with sequence number %d was not added to buffer (already processed or outdated)", payload.SeqNum)
+	}
 	s.logger.Debugf("Blocks payloads buffer size for channel [%s] is %d blocks", s.chainID, s.payloads.Size())
 	return nil
 }

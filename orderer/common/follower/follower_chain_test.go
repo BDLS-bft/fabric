@@ -374,7 +374,7 @@ func TestFollowerPullUpToJoin(t *testing.T) {
 
 		require.Equal(t, 10, ledgerResources.AppendCallCount())
 		require.Equal(t, uint64(10), ledgerResources.Height())
-		for i := uint64(0); i < joinNum; i++ {
+		for i := range joinNum {
 			require.Equal(t, remoteBlockchain.Block(i).Header, localBlockchain.Block(i).Header, "failed block i=%d", i)
 		}
 		require.Equal(t, 0, mockChainCreator.SwitchFollowerToChainCallCount())
@@ -783,7 +783,7 @@ func TestFollowerPullPastJoin(t *testing.T) {
 	})
 	t.Run("Configs in the middle, latest height increasing", func(t *testing.T) {
 		setup()
-		for i := uint64(0); i < 6; i++ {
+		for i := range uint64(6) {
 			localBlockchain.Append(remoteBlockchain.Block(i))
 		}
 
@@ -1003,13 +1003,14 @@ func amIReallyInChannel(configBlock *common.Block) (bool, error) {
 func makeConfigBlock(num uint64, prevHash []byte, isMember uint8) *common.Block {
 	block := protoutil.NewBlock(num, prevHash)
 	env := &common.Envelope{
-		Payload: protoutil.MarshalOrPanic(&common.Payload{
-			Header: protoutil.MakePayloadHeader(
-				protoutil.MakeChannelHeader(common.HeaderType_CONFIG, 0, "my-channel", 0),
-				protoutil.MakeSignatureHeader([]byte{}, []byte{}),
-			),
-			Data: []byte{isMember},
-		},
+		Payload: protoutil.MarshalOrPanic(
+			&common.Payload{
+				Header: protoutil.MakePayloadHeader(
+					protoutil.MakeChannelHeader(common.HeaderType_CONFIG, 0, "my-channel", 0),
+					protoutil.MakeSignatureHeader([]byte{}, []byte{}),
+				),
+				Data: []byte{isMember},
+			},
 		),
 	}
 	block.Data.Data = append(block.Data.Data, protoutil.MarshalOrPanic(env))

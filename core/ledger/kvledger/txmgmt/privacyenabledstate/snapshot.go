@@ -168,7 +168,8 @@ func NewSnapshotWriter(
 func (w *SnapshotWriter) AddData(namespace string, snapshotRecord *SnapshotRecord) error {
 	if len(w.metadata) == 0 || w.metadata[len(w.metadata)-1].namespace != namespace {
 		// new namespace begins
-		w.metadata = append(w.metadata,
+		w.metadata = append(
+			w.metadata,
 			&metadataRow{
 				namespace: namespace,
 				kvCounts:  1,
@@ -255,7 +256,6 @@ func (p *DBProvider) ImportFromSnapshot(
 	err = metadataHinter.importNamespacesThatUseMetadata(
 		worldStateSnapshotReader.namespacesThatUseMetadata,
 	)
-
 	if err != nil {
 		return errors.WithMessage(err, "error while writing to metadata-hint db")
 	}
@@ -484,7 +484,7 @@ func readMetadata(metadataFile *snapshot.FileReader) ([]*metadataRow, error) {
 		return nil, errors.WithMessage(err, "error while reading num-rows in metadata")
 	}
 	metadata := make([]*metadataRow, numMetadata)
-	for i := uint64(0); i < numMetadata; i++ {
+	for i := range numMetadata {
 		ns, err := metadataFile.DecodeString()
 		if err != nil {
 			return nil, errors.WithMessage(err, "error while reading namespace name")

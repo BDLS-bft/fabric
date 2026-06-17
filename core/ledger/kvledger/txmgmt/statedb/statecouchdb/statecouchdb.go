@@ -959,7 +959,7 @@ func applyAdditionalQueryOptions(queryString string, queryLimit int32, queryBook
 	const jsonQueryLimit = "limit"
 	const jsonQueryBookmark = "bookmark"
 	// create a generic map for the query json
-	jsonQueryMap := make(map[string]interface{})
+	jsonQueryMap := make(map[string]any)
 	// unmarshal the selector json into the generic map
 	decoder := json.NewDecoder(bytes.NewBuffer([]byte(queryString)))
 	decoder.UseNumber()
@@ -969,7 +969,7 @@ func applyAdditionalQueryOptions(queryString string, queryLimit int32, queryBook
 	}
 	if fieldsJSONArray, ok := jsonQueryMap[jsonQueryFields]; ok {
 		switch fieldsJSONArray := fieldsJSONArray.(type) {
-		case []interface{}:
+		case []any:
 			// Add the "_id", and "version" fields,  these are needed by default
 			jsonQueryMap[jsonQueryFields] = append(fieldsJSONArray, idField, versionField)
 		default:
@@ -1021,7 +1021,8 @@ type resultsInfo struct {
 }
 
 func newQueryScanner(namespace string, db *couchDatabase, query string, internalQueryLimit,
-	limit int32, bookmark, startKey, endKey string) (*queryScanner, error) {
+	limit int32, bookmark, startKey, endKey string,
+) (*queryScanner, error) {
 	scanner := &queryScanner{namespace, db, &queryDefinition{startKey, endKey, query, internalQueryLimit}, &paginationInfo{-1, limit, bookmark}, &resultsInfo{0, nil}, false}
 	var err error
 	// query is defined, then execute the query and return the records and bookmark

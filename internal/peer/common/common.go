@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -154,14 +155,10 @@ func InitBCCSPConfig(bccspConfig *factory.FactoryOpts) error {
 	if subv == nil {
 		return fmt.Errorf("could not get peer BCCSP configuration")
 	}
-	subv.SetEnvPrefix(CmdRootPeerBCCSP)
-	subv.AutomaticEnv()
-	subv.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	subv.SetTypeByDefaultValue(true)
 
 	opts := viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(
 		mapstructure.StringToTimeDurationHookFunc(),
-		mapstructure.StringToSliceHookFunc(","),
+		mapstructure.StringToWeakSliceHookFunc(","),
 		factory.StringToKeyIds(),
 	))
 
@@ -265,7 +262,7 @@ func GetOrdererEndpointOfChain(chainID string, signer Signer, endorserClient pb.
 		return nil, errors.New("received nil proposal response")
 	}
 
-	if proposalResp.Response.Status != 0 && proposalResp.Response.Status != 200 {
+	if proposalResp.Response.Status != 0 && proposalResp.Response.Status != http.StatusOK {
 		return nil, errors.Errorf("error bad proposal response %d: %s", proposalResp.Response.Status, proposalResp.Response.Message)
 	}
 

@@ -358,7 +358,8 @@ func newCommitter() committer.Committer {
 }
 
 func newPeerNodeWithGossip(id int, committer committer.Committer,
-	acceptor peerIdentityAcceptor, g peerNodeGossipSupport, bootPorts ...int) *peerNode {
+	acceptor peerIdentityAcceptor, g peerNodeGossipSupport, bootPorts ...int,
+) *peerNode {
 	logger := flogging.MustGetLogger(gossiputil.StateLogger)
 	return newPeerNodeWithGossipWithValidator(logger, id, committer, acceptor, g, &validator.MockValidator{}, bootPorts...)
 }
@@ -366,7 +367,8 @@ func newPeerNodeWithGossip(id int, committer committer.Committer,
 // Constructing pseudo peer node, simulating only gossip and state transfer part
 func newPeerNodeWithGossipWithValidatorWithMetrics(logger gossiputil.Logger, id int, committer committer.Committer,
 	acceptor peerIdentityAcceptor, g peerNodeGossipSupport, v txvalidator.Validator,
-	gossipMetrics *metrics.GossipMetrics, bootPorts ...int) (node *peerNode, port int) {
+	gossipMetrics *metrics.GossipMetrics, bootPorts ...int,
+) (node *peerNode, port int) {
 	cs := &cryptoServiceMock{acceptor: acceptor}
 	port, gRPCServer, certs, secureDialOpts, _ := gossiputil.CreateGRPCLayer()
 
@@ -462,7 +464,8 @@ func newPeerNodeWithGossipWithValidatorWithMetrics(logger gossiputil.Logger, id 
 
 // add metrics provider for metrics testing
 func newPeerNodeWithGossipWithMetrics(id int, committer committer.Committer,
-	acceptor peerIdentityAcceptor, g peerNodeGossipSupport, gossipMetrics *metrics.GossipMetrics) *peerNode {
+	acceptor peerIdentityAcceptor, g peerNodeGossipSupport, gossipMetrics *metrics.GossipMetrics,
+) *peerNode {
 	logger := flogging.MustGetLogger(gossiputil.StateLogger)
 	node, _ := newPeerNodeWithGossipWithValidatorWithMetrics(logger, id, committer, acceptor, g,
 		&validator.MockValidator{}, gossipMetrics)
@@ -471,7 +474,8 @@ func newPeerNodeWithGossipWithMetrics(id int, committer committer.Committer,
 
 // Constructing pseudo peer node, simulating only gossip and state transfer part
 func newPeerNodeWithGossipWithValidator(logger gossiputil.Logger, id int, committer committer.Committer,
-	acceptor peerIdentityAcceptor, g peerNodeGossipSupport, v txvalidator.Validator, bootPorts ...int) *peerNode {
+	acceptor peerIdentityAcceptor, g peerNodeGossipSupport, v txvalidator.Validator, bootPorts ...int,
+) *peerNode {
 	gossipMetrics := metrics.NewGossipMetrics(&disabled.Provider{})
 	node, _ := newPeerNodeWithGossipWithValidatorWithMetrics(logger, id, committer, acceptor, g, v, gossipMetrics, bootPorts...)
 	return node
@@ -1040,7 +1044,7 @@ func TestAccessControl(t *testing.T) {
 	var listeners []net.Listener
 	var endpoints []string
 
-	for i := 0; i < authorizedPeersSize; i++ {
+	for range authorizedPeersSize {
 		ll, err := net.Listen("tcp", "127.0.0.1:0")
 		require.NoError(t, err)
 		listeners = append(listeners, ll)
@@ -1070,7 +1074,7 @@ func TestAccessControl(t *testing.T) {
 
 	var bootPorts []int
 
-	for i := 0; i < bootstrapSetSize; i++ {
+	for i := range bootstrapSetSize {
 		commit := newCommitter()
 		bootPeer, bootPort := newBootNode(i, commit, blockPullPolicy)
 		bootstrapSet = append(bootstrapSet, bootPeer)
@@ -1101,7 +1105,7 @@ func TestAccessControl(t *testing.T) {
 	standardPeerSetSize := 10
 	peersSet := make([]*peerNode, 0)
 
-	for i := 0; i < standardPeerSetSize; i++ {
+	for i := range standardPeerSetSize {
 		commit := newCommitter()
 		peersSet = append(peersSet, newPeerNode(bootstrapSetSize+i, commit, blockPullPolicy, bootPorts...))
 	}
@@ -1150,7 +1154,7 @@ func TestNewGossipStateProvider_SendingManyMessages(t *testing.T) {
 
 	var bootPorts []int
 
-	for i := 0; i < bootstrapSetSize; i++ {
+	for i := range bootstrapSetSize {
 		commit := newCommitter()
 		bootPeer, bootPort := newBootNode(i, commit, noopPeerIdentityAcceptor)
 		bootstrapSet = append(bootstrapSet, bootPeer)
@@ -1181,7 +1185,7 @@ func TestNewGossipStateProvider_SendingManyMessages(t *testing.T) {
 	standartPeersSize := 10
 	peersSet := make([]*peerNode, 0)
 
-	for i := 0; i < standartPeersSize; i++ {
+	for i := range standartPeersSize {
 		commit := newCommitter()
 		peersSet = append(peersSet, newPeerNode(bootstrapSetSize+i, commit, noopPeerIdentityAcceptor, bootPorts...))
 	}
@@ -1244,7 +1248,7 @@ func TestNewGossipStateProvider_BatchingOfStateRequest(t *testing.T) {
 	peer := newPeerNode(1, newCommitter(), noopPeerIdentityAcceptor, bootPort)
 	defer peer.shutdown()
 
-	naiveStateMsgPredicate := func(message interface{}) bool {
+	naiveStateMsgPredicate := func(message any) bool {
 		return protoext.IsRemoteStateMessage(message.(protoext.ReceivedMessage).GetGossipMessage().GossipMessage)
 	}
 	_, peerCh := peer.g.Accept(naiveStateMsgPredicate, true)
@@ -1257,7 +1261,7 @@ func TestNewGossipStateProvider_BatchingOfStateRequest(t *testing.T) {
 	// makes sure it receives expected amount of messages and sends signal of success
 	// to continue the test
 	go func() {
-		for count := 0; count < expectedMessagesCnt; count++ {
+		for range expectedMessagesCnt {
 			<-peerCh
 			wg.Done()
 		}

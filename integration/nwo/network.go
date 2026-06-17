@@ -8,6 +8,7 @@ package nwo
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -24,13 +26,13 @@ import (
 	"text/template"
 	"time"
 
-	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	"github.com/hyperledger/fabric/integration/nwo/fabricconfig"
 	"github.com/hyperledger/fabric/integration/nwo/runner"
 	"github.com/hyperledger/fabric/protoutil"
+	dcli "github.com/moby/moby/client"
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -40,10 +42,10 @@ import (
 	"github.com/tedsuo/ifrit"
 	ginkgomon "github.com/tedsuo/ifrit/ginkgomon_v2"
 	"github.com/tedsuo/ifrit/grouper"
+	"go.yaml.in/yaml/v4"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/proto"
-	"gopkg.in/yaml.v3"
 )
 
 // Blocks defines block cutting config.
@@ -148,7 +150,7 @@ type Network struct {
 	RootDir                  string
 	StartPort                uint16
 	Components               *Components
-	DockerClient             *docker.Client
+	DockerClient             dcli.APIClient
 	ExternalBuilders         []fabricconfig.ExternalBuilder
 	NetworkID                string
 	EventuallyTimeout        time.Duration
@@ -162,6 +164,7 @@ type Network struct {
 	PeerDeliveryClientPolicy string
 	UseWriteBatch            bool
 	UseGetMultipleKeys       bool
+	CCEnvVersion             string
 
 	PortsByOrdererID map[string]Ports
 	PortsByPeerID    map[string]Ports
@@ -181,7 +184,7 @@ type Network struct {
 // New creates a Network from a simple configuration. All generated or managed
 // artifacts for the network will be located under rootDir. Ports will be
 // allocated sequentially from the specified startPort.
-func New(c *Config, rootDir string, dockerClient *docker.Client, startPort int, components *Components) *Network {
+func New(c *Config, rootDir string, dockerClient dcli.APIClient, startPort int, components *Components) *Network {
 	network := &Network{
 		StartPort:    uint16(startPort),
 		RootDir:      rootDir,
@@ -196,6 +199,7 @@ func New(c *Config, rootDir string, dockerClient *docker.Client, startPort int, 
 		PeerDeliveryClientPolicy: "",
 		UseWriteBatch:            true,
 		UseGetMultipleKeys:       true,
+		CCEnvVersion:             "$(PROJECT_VERSION)",
 
 		Organizations:  c.Organizations,
 		Consensus:      c.Consensus,
@@ -256,14 +260,14 @@ func New(c *Config, rootDir string, dockerClient *docker.Client, startPort int, 
 	return network
 }
 
-func assertImagesExist(dockerClient *docker.Client, images ...string) {
+func assertImagesExist(dockerClient dcli.APIClient, images ...string) {
 	for _, imageName := range images {
-		images, err := dockerClient.ListImages(docker.ListImagesOptions{
-			Filters: map[string][]string{"reference": {imageName}},
+		images, err := dockerClient.ImageList(context.Background(), dcli.ImageListOptions{
+			Filters: make(dcli.Filters).Add("reference", imageName),
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		if len(images) != 1 {
+		if len(images.Items) != 1 {
 			ginkgo.Fail(fmt.Sprintf("missing required image: %s", imageName), 1)
 		}
 	}
@@ -283,7 +287,7 @@ func (n *Network) AddOrg(o *Organization, peers ...*Peer) {
 	n.Organizations = append(n.Organizations, o)
 }
 
-// ConfigTxPath returns the path to the generated configtxgen configuration
+// ConfigTxConfigPath returns the path to the generated configtxgen configuration
 // file.
 func (n *Network) ConfigTxConfigPath() string {
 	return filepath.Join(n.RootDir, "configtx.yaml")
@@ -800,12 +804,9 @@ func (n *Network) Bootstrap() {
 }
 
 func (n *Network) CreateDockerNetwork() {
-	_, err := n.DockerClient.CreateNetwork(
-		docker.CreateNetworkOptions{
-			Name:   n.NetworkID,
-			Driver: "bridge",
-		},
-	)
+	_, err := n.DockerClient.NetworkCreate(context.Background(), n.NetworkID, dcli.NetworkCreateOptions{
+		Driver: "bridge",
+	})
 	Expect(err).NotTo(HaveOccurred())
 
 	if runtime.GOOS == "darwin" {
@@ -843,14 +844,14 @@ func (n *Network) checkDockerNetworks() {
 }
 
 func (n *Network) dockerIPNets() []*net.IPNet {
-	dockerNetworks, err := n.DockerClient.ListNetworks()
+	dockerNetworks, err := n.DockerClient.NetworkList(context.Background(), dcli.NetworkListOptions{})
 	Expect(err).NotTo(HaveOccurred())
 
 	var nets []*net.IPNet
-	for _, nw := range dockerNetworks {
+	for _, nw := range dockerNetworks.Items {
 		for _, ipconf := range nw.IPAM.Config {
-			if ipconf.Subnet != "" {
-				_, ipn, err := net.ParseCIDR(ipconf.Subnet)
+			if ipconf.Subnet.String() != "" {
+				_, ipn, err := net.ParseCIDR(ipconf.Subnet.String())
 				Expect(err).NotTo(HaveOccurred())
 				nets = append(nets, ipn)
 			}
@@ -869,7 +870,6 @@ func hostIPv4Addrs() []net.IP {
 		Expect(err).NotTo(HaveOccurred())
 
 		for _, a := range addrs {
-			a := a
 			switch v := a.(type) {
 			case *net.IPAddr:
 				if v.IP.To4() != nil {
@@ -950,30 +950,36 @@ func (n *Network) Cleanup() {
 		return
 	}
 
-	nw, err := n.DockerClient.NetworkInfo(n.NetworkID)
+	nw, err := n.DockerClient.NetworkInspect(context.Background(), n.NetworkID, dcli.NetworkInspectOptions{})
 	Expect(err).NotTo(HaveOccurred())
 
-	err = n.DockerClient.RemoveNetwork(nw.ID)
+	_, err = n.DockerClient.NetworkRemove(context.Background(), nw.Network.ID, dcli.NetworkRemoveOptions{})
 	Expect(err).NotTo(HaveOccurred())
 
-	containers, err := n.DockerClient.ListContainers(docker.ListContainersOptions{All: true})
+	containers, err := n.DockerClient.ContainerList(context.Background(), dcli.ContainerListOptions{
+		All: true,
+	})
 	Expect(err).NotTo(HaveOccurred())
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		for _, name := range c.Names {
 			if strings.HasPrefix(name, "/"+n.NetworkID) {
-				err := n.DockerClient.RemoveContainer(docker.RemoveContainerOptions{ID: c.ID, Force: true})
+				_, err = n.DockerClient.ContainerRemove(context.Background(), c.ID, dcli.ContainerRemoveOptions{
+					Force: true,
+				})
 				Expect(err).NotTo(HaveOccurred())
 				break
 			}
 		}
 	}
 
-	images, err := n.DockerClient.ListImages(docker.ListImagesOptions{All: true})
+	images, err := n.DockerClient.ImageList(context.Background(), dcli.ImageListOptions{
+		All: true,
+	})
 	Expect(err).NotTo(HaveOccurred())
-	for _, i := range images {
+	for _, i := range images.Items {
 		for _, tag := range i.RepoTags {
 			if strings.HasPrefix(tag, n.NetworkID) {
-				err := n.DockerClient.RemoveImage(i.ID)
+				_, err = n.DockerClient.ImageRemove(context.Background(), i.ID, dcli.ImageRemoveOptions{})
 				Expect(err).NotTo(HaveOccurred())
 				break
 			}
@@ -1052,7 +1058,7 @@ func (n *Network) discoveredPeerMatcher(p *Peer, chaincodes ...string) types.Gom
 	peerCert, err := os.ReadFile(n.PeerCert(p))
 	Expect(err).NotTo(HaveOccurred())
 
-	var ccs []interface{}
+	var ccs []any
 	for _, cc := range chaincodes {
 		ccs = append(ccs, cc)
 	}
@@ -1071,7 +1077,7 @@ func (n *Network) discoveredPeerMatcher(p *Peer, chaincodes ...string) types.Gom
 // the channel config for the new channel.
 //
 // The orderer must be running when this is called.
-func (n *Network) CreateChannel(channelName string, o *Orderer, p *Peer, additionalSigners ...interface{}) {
+func (n *Network) CreateChannel(channelName string, o *Orderer, p *Peer, additionalSigners ...any) {
 	channelCreateTxPath := n.CreateChannelTxPath(channelName)
 	n.signConfigTransaction(channelCreateTxPath, p, additionalSigners...)
 
@@ -1096,7 +1102,7 @@ func (n *Network) CreateChannel(channelName string, o *Orderer, p *Peer, additio
 //
 // The channel transaction must exist at the location returned by
 // CreateChannelTxPath and the orderer must be running when this is called.
-func (n *Network) CreateChannelExitCode(channelName string, o *Orderer, p *Peer, additionalSigners ...interface{}) int {
+func (n *Network) CreateChannelExitCode(channelName string, o *Orderer, p *Peer, additionalSigners ...any) int {
 	channelCreateTxPath := n.CreateChannelTxPath(channelName)
 	n.signConfigTransaction(channelCreateTxPath, p, additionalSigners...)
 
@@ -1111,7 +1117,7 @@ func (n *Network) CreateChannelExitCode(channelName string, o *Orderer, p *Peer,
 	return sess.Wait(n.EventuallyTimeout).ExitCode()
 }
 
-func (n *Network) signConfigTransaction(channelTxPath string, submittingPeer *Peer, signers ...interface{}) {
+func (n *Network) signConfigTransaction(channelTxPath string, submittingPeer *Peer, signers ...any) {
 	for _, signer := range signers {
 		switch signer := signer.(type) {
 		case *Peer:
@@ -1150,15 +1156,27 @@ func (n *Network) JoinChannel(name string, o *Orderer, peers ...*Peer) {
 	tempFile.Close()
 	defer os.Remove(tempFile.Name())
 
-	sess, err := n.PeerAdminSession(peers[0], commands.ChannelFetch{
-		Block:      "0",
-		ChannelID:  name,
-		Orderer:    n.OrdererAddress(o, ListenPort),
-		OutputFile: tempFile.Name(),
-		ClientAuth: n.ClientAuthRequired,
-	})
-	Expect(err).NotTo(HaveOccurred())
-	Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
+	Eventually(func() string {
+		block, err := Fetch(n, o, name, "0")
+		if err != nil {
+			return fmt.Sprintf("error is %s", err.Error())
+		}
+
+		if block == nil {
+			return "proto: Marshal called with nil"
+		}
+
+		b, err := proto.Marshal(block)
+		if err != nil {
+			return err.Error()
+		}
+
+		if err = os.WriteFile(tempFile.Name(), b, 0o644); err != nil {
+			return err.Error()
+		}
+
+		return ""
+	}, n.EventuallyTimeout, time.Second).Should(BeEmpty())
 
 	for _, p := range peers {
 		sess, err := n.PeerAdminSession(p, commands.ChannelJoin{
@@ -1319,7 +1337,7 @@ func (n *Network) peerCommand(command Command, tlsDir string, env ...string) *ex
 	// usages we have, and add the same (concatenated TLS CA certificates file)
 	// the same number of times to bypass the peer CLI sanity checks
 	requiredPeerAddresses := flagCount("--peerAddresses", cmd.Args)
-	for i := 0; i < requiredPeerAddresses; i++ {
+	for range requiredPeerAddresses {
 		cmd.Args = append(cmd.Args, "--tlsRootCertFiles")
 		cmd.Args = append(cmd.Args, n.CACertsBundlePath())
 	}
@@ -1334,21 +1352,11 @@ func (n *Network) peerCommand(command Command, tlsDir string, env ...string) *ex
 }
 
 func connectsToOrderer(c Command) bool {
-	for _, arg := range c.Args() {
-		if arg == "--orderer" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Args(), "--orderer")
 }
 
 func clientAuthEnabled(c Command) bool {
-	for _, arg := range c.Args() {
-		if arg == "--clientauth" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Args(), "--clientauth")
 }
 
 func flagCount(flag string, args []string) int {

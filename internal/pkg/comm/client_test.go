@@ -29,7 +29,8 @@ const testTimeout = 1 * time.Second // conservative
 type echoServer struct{}
 
 func (es *echoServer) EchoCall(ctx context.Context,
-	echo *testpb.Echo) (*testpb.Echo, error) {
+	echo *testpb.Echo,
+) (*testpb.Echo, error) {
 	return echo, nil
 }
 
@@ -146,7 +147,7 @@ func TestClientConfigDial(t *testing.T) {
 				MaxVersion:   tls.VersionTLS12, // https://github.com/golang/go/issues/33368
 			},
 			success:  false,
-			errorMsg: "tls: bad certificate",
+			errorMsg: "(tls: bad certificate|tls: handshake failure)",
 		},
 		{
 			name: "client TLS / server TLS client cert",
@@ -218,7 +219,6 @@ func TestClientConfigDial(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			lis, err := net.Listen("tcp", "127.0.0.1:0")
@@ -300,7 +300,6 @@ func TestSetMessageSize(t *testing.T) {
 
 	// run tests
 	for _, test := range tests {
-		test := test
 		address := lis.Addr().String()
 		t.Run(test.name, func(t *testing.T) {
 			t.Log(test.name)

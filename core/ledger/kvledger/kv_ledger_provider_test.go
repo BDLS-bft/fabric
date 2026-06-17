@@ -61,7 +61,7 @@ func testLedgerProvider(t *testing.T, enableHistoryDB bool) {
 	require.NoError(t, err)
 	require.Len(t, existingLedgerIDs, 0)
 	genesisBlocks := make([]*common.Block, numLedgers)
-	for i := 0; i < numLedgers; i++ {
+	for i := range numLedgers {
 		genesisBlock, _ := configtxtest.MakeGenesisBlock(constructTestLedgerID(i))
 		genesisBlocks[i] = genesisBlock
 		_, err := provider.CreateFromGenesisBlock(genesisBlock)
@@ -83,10 +83,10 @@ func testLedgerProvider(t *testing.T, enableHistoryDB bool) {
 	defer provider.Close()
 	ledgerIds, _ := provider.List()
 	require.Len(t, ledgerIds, numLedgers)
-	for i := 0; i < numLedgers; i++ {
+	for i := range numLedgers {
 		require.Equal(t, constructTestLedgerID(i), ledgerIds[i])
 	}
-	for i := 0; i < numLedgers; i++ {
+	for i := range numLedgers {
 		ledgerid := constructTestLedgerID(i)
 		status, _ := provider.Exists(ledgerid)
 		require.True(t, status)
@@ -306,7 +306,8 @@ func testDeletionOfUnderConstructionLedgersAtStart(t *testing.T, enableHistoryDB
 
 	switch mimicCrashAfterLedgerCreation {
 	case false:
-		require.NoError(t,
+		require.NoError(
+			t,
 			idStore.createLedgerID(ledgerID, &msgs.LedgerMetadata{
 				Status: msgs.Status_UNDER_CONSTRUCTION,
 			}),
@@ -321,7 +322,8 @@ func testDeletionOfUnderConstructionLedgersAtStart(t *testing.T, enableHistoryDB
 		require.Equal(t, msgs.Status_ACTIVE, m.Status)
 		// mimic a situation that a crash happens after ledger creation but before changing the UNDER_CONSTRUCTION status
 		// to Status_ACTIVE
-		require.NoError(t,
+		require.NoError(
+			t,
 			provider.idStore.updateLedgerStatus(ledgerID, msgs.Status_UNDER_CONSTRUCTION),
 		)
 	}
@@ -379,7 +381,7 @@ func TestMultipleLedgerBasicRW(t *testing.T) {
 
 	numLedgers := 10
 	ledgers := make([]ledger.PeerLedger, numLedgers)
-	for i := 0; i < numLedgers; i++ {
+	for i := range numLedgers {
 		bg, gb := testutil.NewBlockGenerator(t, constructTestLedgerID(i), false)
 		l, err := provider1.CreateFromGenesisBlock(gb)
 		require.NoError(t, err)
@@ -403,7 +405,7 @@ func TestMultipleLedgerBasicRW(t *testing.T) {
 	provider2 := testutilNewProvider(conf, t, &mock.DeployedChaincodeInfoProvider{})
 	defer provider2.Close()
 	ledgers = make([]ledger.PeerLedger, numLedgers)
-	for i := 0; i < numLedgers; i++ {
+	for i := range numLedgers {
 		l, err := provider2.Open(constructTestLedgerID(i))
 		require.NoError(t, err)
 		ledgers[i] = l

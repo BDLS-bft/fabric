@@ -75,7 +75,8 @@ func (n *collElgNotifier) HandleStateUpdates(trigger *ledger.StateUpdateTrigger)
 		if err != nil {
 			return err
 		}
-		logger.Debugf("[%s] collections of chaincode [%s] for which peer was not eligible before and now the eligiblity is enabled - [%s]",
+		logger.Debugf(
+			"[%s] collections of chaincode [%s] for which peer was not eligible before and now the eligiblity is enabled - [%s]",
 			ledgerid, ccName, elgEnabledCollNames,
 		)
 		if len(elgEnabledCollNames) > 0 {
@@ -99,7 +100,8 @@ func (n *collElgNotifier) invokeLedgerSpecificNotifier(ledgerID string, commting
 
 // elgEnabledCollNames returns the names of the collections for which the peer is not eligible as per 'existingPkg' and is eligible as per 'postCommitPkg'
 func (n *collElgNotifier) elgEnabledCollNames(ledgerID string,
-	existingPkg, postCommitPkg *peer.CollectionConfigPackage) ([]string, error) {
+	existingPkg, postCommitPkg *peer.CollectionConfigPackage,
+) ([]string, error) {
 	collectionNames := []string{}
 	exisingConfs := retrieveCollConfs(existingPkg)
 	postCommitConfs := retrieveCollConfs(postCommitPkg)
@@ -129,11 +131,11 @@ func (n *collElgNotifier) elgEnabledCollNames(ledgerID string,
 
 // elgEnabled returns true if the peer is not eligible for a collection as per 'existingPolicy' and is eligible as per 'postCommitPolicy'
 func (n *collElgNotifier) elgEnabled(ledgerID string, existingPolicy, postCommitPolicy *peer.CollectionPolicyConfig) (bool, error) {
-	existingMember, err := n.membershipInfoProvider.AmMemberOf(ledgerID, existingPolicy)
-	if err != nil || existingMember {
-		return false, err
+	existingMember := n.membershipInfoProvider.AmMemberOf(ledgerID, existingPolicy)
+	if existingMember {
+		return false, nil
 	}
-	return n.membershipInfoProvider.AmMemberOf(ledgerID, postCommitPolicy)
+	return n.membershipInfoProvider.AmMemberOf(ledgerID, postCommitPolicy), nil
 }
 
 func extractPublicUpdates(stateUpdates ledger.StateUpdates) map[string][]*kvrwset.KVWrite {

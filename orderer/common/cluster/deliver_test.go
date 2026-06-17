@@ -486,7 +486,7 @@ func TestBlockPullerHeavyBlocks(t *testing.T) {
 	// Enqueue only the next batch in the orderer node.
 	// This ensures that only 10 blocks are fetched into the buffer
 	// and not more.
-	for i := uint64(0); i < 5; i++ {
+	for i := range uint64(5) {
 		enqueueBlockBatch(i*10+uint64(1), i*10+uint64(10))
 		for seq := i*10 + uint64(1); seq <= i*10+uint64(10); seq++ {
 			require.Equal(t, seq, bp.PullBlock(seq).Header.Number)
@@ -1020,7 +1020,6 @@ func TestBlockPullerFailures(t *testing.T) {
 			failFunc: malformBlockSignatureAndRecreateOSNBuffer,
 		},
 	} {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			testLogger.Infof("Starting test case: %s", testCase.name)
 			osn := newClusterNode(t)
@@ -1130,7 +1129,6 @@ func TestBlockPullerBadBlocks(t *testing.T) {
 	}
 
 	for _, testCase := range testcases {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			osn := newClusterNode(t)
 			defer osn.stop()
@@ -1140,6 +1138,7 @@ func TestBlockPullerBadBlocks(t *testing.T) {
 
 			dialer := newCountingDialer()
 			bp := newBlockPuller(dialer, osn.srv.Address())
+			bp.FetchTimeout = 100 * time.Millisecond
 
 			osn.enqueueResponse(10)
 			osn.enqueueResponse(10)
@@ -1245,15 +1244,15 @@ func TestImpatientStreamFailure(t *testing.T) {
 	// Shutdown the OSN
 	osn.stop()
 	// Ensure the port isn't open anymore
-	gt.Eventually(func() (bool, error) {
+	gt.Eventually(func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
 		defer cancel()
 		conn, _ := grpc.DialContext(ctx, osn.srv.Address(), grpc.WithBlock(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if conn != nil {
 			conn.Close()
-			return false, nil
+			return false
 		}
-		return true, nil
+		return true
 	}).Should(gomega.BeTrue())
 	stream, err := newStream()
 	if err != nil {
@@ -1290,7 +1289,7 @@ func TestBlockPullerMaxRetriesExhausted(t *testing.T) {
 	// stream that the client should open.
 	osn.blockResponses <- nil
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		// Therefore, the block puller should disconnect and reconnect.
 		osn.addExpectProbeAssert()
 		// We report having up to block 3.

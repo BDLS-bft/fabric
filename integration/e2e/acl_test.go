@@ -13,13 +13,13 @@ import (
 	"path/filepath"
 	"syscall"
 
-	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/core/aclmgmt/resources"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	"github.com/hyperledger/fabric/protoutil"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -32,7 +32,7 @@ import (
 var _ = Describe("EndToEndACL", func() {
 	var (
 		testDir                     string
-		client                      *docker.Client
+		client                      dcli.APIClient
 		network                     *nwo.Network
 		chaincode                   nwo.Chaincode
 		ordererRunner               *ginkgomon.Runner
@@ -48,7 +48,7 @@ var _ = Describe("EndToEndACL", func() {
 		testDir, err = os.MkdirTemp("", "acl-e2e")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		// Speed up test by reducing the number of peers we
@@ -469,7 +469,7 @@ func SetACLPolicy(network *nwo.Network, channel, policyName, policy string, orde
 	nwo.UpdateConfig(network, orderer, channel, config, updatedConfig, true, submitter, nil, signer)
 }
 
-// GetTxIDFromBlock gets a transaction id from a block that has been
+// GetTxIDFromBlockFile gets a transaction id from a block that has been
 // marshaled and stored on the filesystem
 func GetTxIDFromBlockFile(blockFile string) string {
 	block := nwo.UnmarshalBlockFromFile(blockFile)

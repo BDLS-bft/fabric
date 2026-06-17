@@ -13,7 +13,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/hyperledger-labs/SmartBFT/pkg/types"
@@ -72,7 +72,7 @@ func (rtc RuntimeConfig) BlockCommitted(block *cb.Block, bccsp bccsp.BCCSP) (Run
 }
 
 func (rtc RuntimeConfig) configBlockCommitted(block *cb.Block, bccsp bccsp.BCCSP) (RuntimeConfig, error) {
-	nodeConf, err := RemoteNodesFromConfigBlock(block, rtc.logger, bccsp)
+	nodeConf, err := remoteNodesFromConfigBlock(block, rtc.logger, bccsp)
 	if err != nil {
 		return rtc, errors.Wrap(err, "remote nodes cannot be computed, rejecting config block")
 	}
@@ -133,7 +133,7 @@ func getViewMetadataFromBlock(block *cb.Block) (*smartbftprotos.ViewMetadata, er
 	signatureMetadata := protoutil.GetMetadataFromBlockOrPanic(block, cb.BlockMetadataIndex_SIGNATURES)
 	ordererMD := &cb.OrdererBlockMetadata{}
 	if err := proto.Unmarshal(signatureMetadata.Value, ordererMD); err != nil {
-		return nil, errors.Wrap(err, "failed unmarshaling OrdererBlockMetadata")
+		return nil, errors.Wrap(err, "failed unmarshalling OrdererBlockMetadata")
 	}
 
 	var viewMetadata smartbftprotos.ViewMetadata
@@ -150,7 +150,7 @@ type request struct {
 	chHdr    *cb.ChannelHeader
 }
 
-// RequestInspector inspects incomming requests and validates serialized identity
+// RequestInspector inspects incoming requests and validates serialized identity
 type RequestInspector struct {
 	ValidateIdentityStructure func(identity *msp.SerializedIdentity) error
 	Logger                    *flogging.FabricLogger
@@ -250,7 +250,7 @@ func (ri *RequestInspector) unwrapReq(req []byte) (*request, error) {
 func (ri *RequestInspector) unwrapReqFromEnvelop(envelope *cb.Envelope) (*request, error) {
 	payload := &cb.Payload{}
 	if err := proto.Unmarshal(envelope.Payload, payload); err != nil {
-		return nil, errors.Wrap(err, "failed unmarshaling payload")
+		return nil, errors.Wrap(err, "failed unmarshalling payload")
 	}
 
 	if payload.Header == nil {
@@ -268,7 +268,7 @@ func (ri *RequestInspector) unwrapReqFromEnvelop(envelope *cb.Envelope) (*reques
 
 	chdr, err := protoutil.UnmarshalChannelHeader(payload.Header.ChannelHeader)
 	if err != nil {
-		return nil, errors.WithMessage(err, "error unmarshaling channel header")
+		return nil, errors.WithMessage(err, "error unmarshalling channel header")
 	}
 
 	return &request{
@@ -278,11 +278,11 @@ func (ri *RequestInspector) unwrapReqFromEnvelop(envelope *cb.Envelope) (*reques
 	}, nil
 }
 
-// RemoteNodesFromConfigBlock unmarshals the node config from the block metadata
-func RemoteNodesFromConfigBlock(block *cb.Block, logger *flogging.FabricLogger, bccsp bccsp.BCCSP) (*nodeConfig, error) {
+// remoteNodesFromConfigBlock unmarshalls the node config from the block metadata
+func remoteNodesFromConfigBlock(block *cb.Block, logger *flogging.FabricLogger, bccsp bccsp.BCCSP) (*nodeConfig, error) {
 	env := &cb.Envelope{}
 	if err := proto.Unmarshal(block.Data.Data[0], env); err != nil {
-		return nil, errors.Wrap(err, "failed unmarshaling envelope of config block")
+		return nil, errors.Wrap(err, "failed unmarshalling envelope of config block")
 	}
 	bundle, err := channelconfig.NewBundleFromEnvelope(env, bccsp)
 	if err != nil {
@@ -315,16 +315,16 @@ func RemoteNodesFromConfigBlock(block *cb.Block, logger *flogging.FabricLogger, 
 		if err != nil {
 			logger.Panicf("Failed to sanitize identity: %v [%s]", err, string(consenter.Identity))
 		}
-		id2Identies[(uint64)(consenter.Id)] = sanitizedID
+		id2Identies[uint64(consenter.Id)] = sanitizedID
 		logger.Infof("%s %d ---> %s", bundle.ConfigtxValidator().ChannelID(), consenter.Id, string(consenter.Identity))
 
-		nodeIDs = append(nodeIDs, (uint64)(consenter.Id))
+		nodeIDs = append(nodeIDs, uint64(consenter.Id))
 
-		serverCertAsDER, err := pemToDER(consenter.ServerTlsCert, (uint64)(consenter.Id), "server", logger)
+		serverCertAsDER, err := pemToDER(consenter.ServerTlsCert, uint64(consenter.Id), "server", logger)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
-		clientCertAsDER, err := pemToDER(consenter.ClientTlsCert, (uint64)(consenter.Id), "client", logger)
+		clientCertAsDER, err := pemToDER(consenter.ClientTlsCert, uint64(consenter.Id), "client", logger)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
@@ -354,7 +354,7 @@ func RemoteNodesFromConfigBlock(block *cb.Block, logger *flogging.FabricLogger, 
 
 		remoteNodes = append(remoteNodes, cluster.RemoteNode{
 			NodeAddress: cluster.NodeAddress{
-				ID:       (uint64)(consenter.Id),
+				ID:       uint64(consenter.Id),
 				Endpoint: fmt.Sprintf("%s:%d", consenter.Host, consenter.Port),
 			},
 
@@ -367,9 +367,7 @@ func RemoteNodesFromConfigBlock(block *cb.Block, logger *flogging.FabricLogger, 
 		})
 	}
 
-	sort.Slice(nodeIDs, func(i, j int) bool {
-		return nodeIDs[i] < nodeIDs[j]
-	})
+	slices.Sort(nodeIDs)
 
 	return &nodeConfig{
 		consenters:    oc.Consenters(),
@@ -453,12 +451,12 @@ func (w *worker) doWork() {
 	}
 }
 
-func createSmartBftConfig(odrdererConfig channelconfig.Orderer) (*smartbft.Options, error) {
+func createSmartBftConfig(ordererConfig channelconfig.Orderer) (*smartbft.Options, error) {
 	configOptions := &smartbft.Options{}
-	if err := proto.Unmarshal(odrdererConfig.ConsensusMetadata(), configOptions); err != nil {
+	if err := proto.Unmarshal(ordererConfig.ConsensusMetadata(), configOptions); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal consensus metadata")
 	}
-	batchSize := odrdererConfig.BatchSize()
+	batchSize := ordererConfig.BatchSize()
 	configOptions.RequestBatchMaxCount = uint64(batchSize.MaxMessageCount)
 	configOptions.RequestBatchMaxBytes = uint64(batchSize.AbsoluteMaxBytes)
 	return configOptions, nil

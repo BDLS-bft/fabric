@@ -30,7 +30,7 @@ func TestSameMessage(t *testing.T) {
 	}
 
 	ms := NewMemoizeSigner(sign, 10)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		sig, err := ms.Sign([]byte{1, 2, 3})
 		require.NoError(t, err)
 		require.Equal(t, []byte{1, 2, 3}, sig)
@@ -49,7 +49,7 @@ func TestDifferentMessages(t *testing.T) {
 	ms := NewMemoizeSigner(sign, n)
 	parallelSignRange := func(start, end uint) {
 		var wg sync.WaitGroup
-		wg.Add((int)(end - start))
+		wg.Add(int(end - start))
 		for i := start; i < end; i++ {
 			i := i
 			go func() {

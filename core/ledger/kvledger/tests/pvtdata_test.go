@@ -158,7 +158,7 @@ func TestBTL(t *testing.T) {
 	blk2 := l.cutBlockAndCommitLegacy()
 
 	// commit 5 more blocks with some random key/vals
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		l.simulateDataTx("", func(s *simulator) {
 			s.setPvtdata("cc1", "coll1", "someOtherKey", "someOtherVal")
 			s.setPvtdata("cc1", "coll2", "someOtherKey", "someOtherVal")
@@ -330,7 +330,8 @@ func TestReconciliationAfterKeyPurge(t *testing.T) {
 	)
 
 	l.verifyMissingPvtDataSameAs(2, ledger.MissingPvtDataInfo{}) // missing data flag should have been cleared
-	l.verifyInPvtdataStore(2, nil,                               // Now the peer should return the pvtdata with no keys (as all keys are purged)
+	l.verifyInPvtdataStore(
+		2, nil, // Now the peer should return the pvtdata with no keys (as all keys are purged)
 		[]*ledger.TxPvtData{
 			pvtdataWithNoKeys,
 		},

@@ -38,8 +38,8 @@ type RPC interface {
 
 // Logger specifies the logger
 type Logger interface {
-	Warnf(template string, args ...interface{})
-	Panicf(template string, args ...interface{})
+	Warnf(template string, args ...any)
+	Panicf(template string, args ...any)
 }
 
 // Egress implementation
@@ -71,7 +71,7 @@ func (e *Egress) SendTransaction(targetID uint64, request []byte) {
 	env := &cb.Envelope{}
 	err := proto.Unmarshal(request, env)
 	if err != nil {
-		e.Logger.Panicf("Failed unmarshaling request %v to envelope: %v", request, err)
+		e.Logger.Panicf("Failed unmarshalling request %v to envelope: %v", request, err)
 	}
 	msg := &ab.SubmitRequest{
 		Payload: env,

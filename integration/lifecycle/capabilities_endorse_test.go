@@ -17,9 +17,9 @@ import (
 	"path/filepath"
 	"syscall"
 
-	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/raft"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/tedsuo/ifrit"
@@ -28,7 +28,7 @@ import (
 
 var _ = Describe("Lifecycle with Channel v3_0 capabilities and ed25519 identities", func() {
 	var (
-		client       *docker.Client
+		client       dcli.APIClient
 		testDir      string
 		network      *nwo.Network
 		ordererProcs []ifrit.Process
@@ -42,7 +42,7 @@ var _ = Describe("Lifecycle with Channel v3_0 capabilities and ed25519 identitie
 		testDir, err = os.MkdirTemp("", "lifecycle")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 		channelID = "testchannel"
 
@@ -138,7 +138,8 @@ var _ = Describe("Lifecycle with Channel v3_0 capabilities and ed25519 identitie
 		RunQueryInvokeQuery(network, orderer1, "mycc", 100, org1Peer0, org2Peer0)
 
 		By("enabling V3_0 lifecycle capabilities on testchannel, which supports ed25519")
-		nwo.EnableChannelCapabilities(network, channelID, "V3_0", true, orderer1, []*nwo.Orderer{orderer1},
+		nwo.EnableChannelCapabilities(
+			network, channelID, "V3_0", true, orderer1, []*nwo.Orderer{orderer1},
 			org1Peer0,
 			org2Peer0,
 		)
@@ -236,7 +237,8 @@ var _ = Describe("Lifecycle with Channel v3_0 capabilities and ed25519 identitie
 
 		By("setting up the channel with v3_0 capabilities and without the ed25519 peer")
 		nwo.EnableCapabilities(network, channelID, "Application", "V2_0", orderer, network.Peer("Org1", "peer0"), network.Peer("Org2", "peer0"))
-		nwo.EnableChannelCapabilities(network, channelID, "V3_0", false, orderer, []*nwo.Orderer{orderer},
+		nwo.EnableChannelCapabilities(
+			network, channelID, "V3_0", false, orderer, []*nwo.Orderer{orderer},
 			org1Peer0,
 			org2Peer0,
 		)
@@ -274,7 +276,8 @@ var _ = Describe("Lifecycle with Channel v3_0 capabilities and ed25519 identitie
 		RunQueryInvokeQuery(network, orderer, "mycc", 100, endorsers...)
 
 		By("downgrading the channel capabilities back to v2_0")
-		nwo.EnableChannelCapabilities(network, channelID, "V2_0", false, orderer, []*nwo.Orderer{orderer},
+		nwo.EnableChannelCapabilities(
+			network, channelID, "V2_0", false, orderer, []*nwo.Orderer{orderer},
 			org1Peer0,
 			org2Peer0,
 		)
@@ -284,7 +287,7 @@ var _ = Describe("Lifecycle with Channel v3_0 capabilities and ed25519 identitie
 	})
 })
 
-func giveEd25519CertAndKeyForEntity(network *nwo.Network, entitiy interface{}) {
+func giveEd25519CertAndKeyForEntity(network *nwo.Network, entitiy any) {
 	var certPath, keyPath, caCertPath, caKeyPath string
 	if peer, ok := entitiy.(*nwo.Peer); ok {
 		certPath = network.PeerCert(peer)

@@ -11,6 +11,7 @@ package multichannel
 
 import (
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/hyperledger/fabric-lib-go/bccsp"
@@ -97,7 +98,8 @@ func NewRegistrar(
 	metricsProvider metrics.Provider,
 	bccsp bccsp.BCCSP,
 	clusterDialer *cluster.PredicateDialer,
-	callbacks ...channelconfig.BundleActor) *Registrar {
+	callbacks ...channelconfig.BundleActor,
+) *Registrar {
 	r := &Registrar{
 		config:                      config,
 		chains:                      make(map[string]*ChainSupport),
@@ -619,6 +621,53 @@ func (r *Registrar) ChannelInfo(channelID string) (types.ChannelInfo, error) {
 	return types.ChannelInfo{}, types.ErrChannelNotExist
 }
 
+// FetchBlock instructs the orderer to send a block of channel.
+func (r *Registrar) FetchBlock(channelID string, blockID string) (*cb.Block, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	if status, ok := r.pendingRemoval[channelID]; ok {
+		if status.Status == types.StatusFailed {
+			return nil, types.ErrChannelRemovalFailure
+		}
+		return nil, types.ErrChannelPendingRemoval
+	}
+
+	if _, ok := r.followers[channelID]; ok {
+		return nil, types.ErrChannelNotReady
+	}
+
+	cs, ok := r.chains[channelID]
+	if !ok {
+		return nil, types.ErrChannelNotExist
+	}
+
+	switch blockID {
+	case "oldest":
+		return cs.RetrieveBlockByNumber(0)
+	case "newest":
+		return cs.RetrieveBlockByNumber(cs.Height() - 1)
+	case "config":
+		b, err := cs.RetrieveBlockByNumber(cs.Height() - 1)
+		if err != nil {
+			return nil, err
+		}
+		lc, err := protoutil.GetLastConfigIndexFromBlock(b)
+		if err != nil {
+			return nil, err
+		}
+		return cs.RetrieveBlockByNumber(lc)
+	default:
+	}
+
+	nb, err := strconv.Atoi(blockID)
+	if err != nil {
+		return nil, err
+	}
+
+	return cs.RetrieveBlockByNumber(uint64(nb))
+}
+
 // JoinChannel instructs the orderer to create a channel and join it with the provided config block.
 // The URL field is empty, and is to be completed by the caller.
 func (r *Registrar) JoinChannel(channelID string, configBlock *cb.Block) (info types.ChannelInfo, err error) {
@@ -784,7 +833,8 @@ func (r *Registrar) createFollower(
 ) (*follower.Chain, types.ChannelInfo, error) {
 	fLog := flogging.MustGetLogger("orderer.common.follower")
 	blockPullerCreator, err := follower.NewBlockPullerCreator(
-		channelID, fLog, r.signer, r.clusterDialer, r.config.General.Cluster, r.bccsp)
+		channelID, fLog, r.signer, r.clusterDialer, r.config.General.Cluster, r.bccsp,
+	)
 	if err != nil {
 		return nil, types.ChannelInfo{}, errors.WithMessagef(err, "failed to create BlockPullerFactory for channel %s", channelID)
 	}

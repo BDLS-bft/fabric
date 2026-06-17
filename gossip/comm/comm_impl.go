@@ -57,7 +57,8 @@ func (c *commImpl) SetDialOpts(opts ...grpc.DialOption) {
 // NewCommInstance creates a new comm instance that binds itself to the given gRPC server
 func NewCommInstance(s *grpc.Server, certs *common.TLSCertificates, idStore identity.Mapper,
 	peerIdentity api.PeerIdentityType, secureDialOpts api.PeerSecureDialOpts, sa api.SecurityAdvisor,
-	commMetrics *metrics.CommMetrics, config CommConfig, dialOpts ...grpc.DialOption) (Comm, error) {
+	commMetrics *metrics.CommMetrics, config CommConfig, dialOpts ...grpc.DialOption,
+) (Comm, error) {
 	commInst := &commImpl{
 		sa:              sa,
 		pubSub:          util.NewPubSub(),
@@ -541,7 +542,7 @@ func (c *commImpl) SendWithAck(msg *protoext.SignedGossipMessage, timeout time.D
 				return err
 			}
 			if msg, isAck := msg.(*proto.Acknowledgement); !isAck {
-				return errors.Errorf("received a message of type %s, expected *proto.Acknowledgement", reflect.TypeOf(msg))
+				return errors.Errorf("received a message of type %s, expected *proto.Acknowledgement", reflect.TypeFor[*proto.Acknowledgement]())
 			} else {
 				if msg.Error != "" {
 					return errors.New(msg.Error)

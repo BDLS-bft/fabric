@@ -257,7 +257,7 @@ func TestGetMissingDataInfo(t *testing.T) {
 			},
 		}
 
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			assertMissingDataInfo(t, store, expectedDeprioMissingDataInfo, 2)
 		}
 	})
@@ -289,7 +289,7 @@ func TestGetMissingDataInfo(t *testing.T) {
 			},
 		}
 
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			assertMissingDataInfo(t, store, expectedPrioMissingDataInfo, 2)
 		}
 
@@ -300,7 +300,7 @@ func TestGetMissingDataInfo(t *testing.T) {
 
 		require.True(t, store.accessDeprioMissingDataAfter.After(lesserThanNextAccessTime))
 		require.False(t, store.accessDeprioMissingDataAfter.After(greaterThanNextAccessTime))
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			assertMissingDataInfo(t, store, expectedPrioMissingDataInfo, 2)
 		}
 	})
@@ -598,7 +598,8 @@ func TestStorePurge(t *testing.T) {
 
 	// "ns-2:coll-1" should never have been purged (because, it was no btl was declared for this)
 	require.True(t, testDataKeyExists(t, s, &dataKey{nsCollBlk: nsCollBlk{ns: "ns-1", coll: "coll-2", blkNum: 1}, txNum: 2}))
-	require.True(t, testHashedIndexExists(t, s,
+	require.True(t, testHashedIndexExists(
+		t, s,
 		&hashedIndexKey{
 			ns:         "ns-1",
 			coll:       "coll-2",
@@ -623,7 +624,8 @@ func TestStoreState(t *testing.T) {
 		produceSamplePvtdata(t, 0, []string{"ns-1:coll-1", "ns-1:coll-2"}),
 	}
 
-	require.EqualError(t,
+	require.EqualError(
+		t,
 		store.Commit(1, testData, nil, nil),
 		"expected block number=0, received block number=1",
 	)
@@ -708,6 +710,95 @@ func TestCollElgEnabled(t *testing.T) {
 	conf.BatchesInterval = 1
 	conf.MaxBatchSize = 1
 	testCollElgEnabled(t, conf)
+}
+
+// TestCollElgEnabled_PurgerDeletesDuringBatchSleep verifies that entries
+// deleted by the purger while processCollElgEvents sleeps between batch
+// writes are not re-inserted as eligible-priority missing data.
+//
+// Without the fix (closing the LevelDB iterator before releasing
+// purgerLock), the stale snapshot iterator still yields the deleted keys
+// and the loop converts them back into ElgPrioMissingData entries.
+func TestCollElgEnabled_PurgerDeletesDuringBatchSleep(t *testing.T) {
+	conf := pvtDataConf()
+	conf.BatchesInterval = 1000 // 1 s sleep between batches — long enough for the simulated purger
+	conf.MaxBatchSize = 1       // flush after every entry so the lock-release path is exercised
+
+	btlPolicy := btltestutil.SampleBTLPolicy(
+		map[[2]string]uint64{
+			{"ns-1", "coll-1"}: 0,
+			{"ns-1", "coll-2"}: 0,
+		},
+	)
+	env := NewTestStoreEnv(t, "TestCollElgPurgerRace", btlPolicy, conf)
+	defer env.Cleanup()
+	store := env.TestStore
+
+	// Commit block 0 (genesis).
+	require.NoError(t, store.Commit(0, nil, nil, nil))
+
+	// Commit blocks 1-3, each with an ineligible missing-data entry for
+	// ns-1/coll-2.  processCollElgEvents will iterate these in reverse
+	// block-number order (3, 2, 1) because InelgMissingData keys use
+	// reverse-order encoding for the block number.
+	for blk := uint64(1); blk <= 3; blk++ {
+		missingData := make(ledger.TxMissingPvtData)
+		missingData.Add(1, "ns-1", "coll-2", false)
+		require.NoError(t, store.Commit(blk, nil, missingData, nil))
+	}
+
+	// Sanity-check: all three InelgMissing entries exist.
+	for blk := uint64(1); blk <= 3; blk++ {
+		key := &missingDataKey{nsCollBlk: nsCollBlk{ns: "ns-1", coll: "coll-2", blkNum: blk}}
+		require.True(t, testInelgMissingDataKeyExists(t, store, key),
+			"expected InelgMissing entry for blk %d before processing", blk)
+	}
+
+	// Simulated purger goroutine.
+	// After a short delay (to let processCollElgEvents acquire the lock and
+	// flush the first batch), this goroutine acquires purgerLock during the
+	// inter-batch sleep window and deletes the InelgMissing entries for
+	// blk 1 and blk 2 — exactly what the real purger does for expired data.
+	purgerDone := make(chan struct{})
+	go func() {
+		defer close(purgerDone)
+		time.Sleep(200 * time.Millisecond)
+		store.purgerLock.Lock()
+		defer store.purgerLock.Unlock()
+		for _, blk := range []uint64{1, 2} {
+			key := encodeInelgMissingDataKey(
+				&missingDataKey{nsCollBlk: nsCollBlk{ns: "ns-1", coll: "coll-2", blkNum: blk}},
+			)
+			err := store.db.Delete(key, true)
+			require.NoError(t, err)
+		}
+	}()
+
+	// Trigger collection-eligibility processing.
+	require.NoError(t, store.ProcessCollsEligibilityEnabled(
+		5,
+		map[string][]string{"ns-1": {"coll-2"}},
+	))
+	testutilWaitForCollElgProcToFinish(store)
+	<-purgerDone
+
+	// blk 3 was the first entry processed (reverse-order iteration) and was
+	// converted to ElgPrio in the very first batch, before the simulated
+	// purger ran.
+	key3 := &missingDataKey{nsCollBlk: nsCollBlk{ns: "ns-1", coll: "coll-2", blkNum: 3}}
+	require.True(t, testElgPrioMissingDataKeyExists(t, store, key3),
+		"blk 3 should have been converted to ElgPrio")
+
+	// blk 1 and blk 2 were purged while processCollElgEvents was sleeping
+	// between batches.  With the fix, the freshly-opened iterator reflects
+	// the purge and these entries are never re-inserted.
+	for _, blk := range []uint64{1, 2} {
+		key := &missingDataKey{nsCollBlk: nsCollBlk{ns: "ns-1", coll: "coll-2", blkNum: blk}}
+		require.False(t, testElgPrioMissingDataKeyExists(t, store, key),
+			"blk %d should NOT have been re-created as ElgPrio after purge", blk)
+		require.False(t, testInelgMissingDataKeyExists(t, store, key),
+			"blk %d InelgMissing entry should have been purged", blk)
+	}
 }
 
 func TestDrop(t *testing.T) {
@@ -853,8 +944,10 @@ func TestStoreFilterPurgedKeys(t *testing.T) {
 			WriteSet:   txWriteSetProto,
 		},
 	}
-	require.NoError(t,
-		s.Commit(1, testDataForBlk1, nil,
+	require.NoError(
+		t,
+		s.Commit(
+			1, testDataForBlk1, nil,
 			[]*PurgeMarker{
 				{
 					Ns:         "ns-1",
@@ -965,7 +1058,8 @@ func TestStoreFilterPurgedKeys(t *testing.T) {
 	// Add a purge marker again for key-2 at block-2
 	require.NoError(
 		t,
-		s.Commit(2, nil, nil,
+		s.Commit(
+			2, nil, nil,
 			[]*PurgeMarker{
 				{
 					Ns:         "ns-1",
@@ -1015,7 +1109,8 @@ func TestStoreFilterPurgedKeys(t *testing.T) {
 	// Add a purge marker for key-3 at block-3
 	require.NoError(
 		t,
-		s.Commit(3, nil, nil,
+		s.Commit(
+			3, nil, nil,
 			[]*PurgeMarker{
 				{
 					Ns:         "ns-1",
@@ -1134,7 +1229,8 @@ func TestStoreProcessPurgeMarker(t *testing.T) {
 	}
 	require.NoError(
 		t,
-		s.Commit(1, testDataForBlk1, nil,
+		s.Commit(
+			1, testDataForBlk1, nil,
 			[]*PurgeMarker{
 				{
 					Ns:         "ns-1",
@@ -1269,7 +1365,8 @@ func TestStoreProcessPurgeMarker(t *testing.T) {
 
 	require.NoError(
 		t,
-		s.Commit(3,
+		s.Commit(
+			3,
 			// Add a delete for the private key to simulate the situation where this key
 			// is added along with the purge marker at the same transaction height
 			[]*ledger.TxPvtData{
@@ -1302,19 +1399,21 @@ func TestStoreProcessPurgeMarker(t *testing.T) {
 
 	// this should cause purging key-1 from data
 	require.True(t, testDataKeyExists(t, s, dataKeyColl1))
-	require.Equal(t,
+	require.Equal(
+		t,
 		"coll-1",
 		testRetrieveDataValue(t, s, dataKeyColl1).CollectionName,
 	)
 	require.True(t,
-		proto.Equal(&kvrwset.KVRWSet{
-			Writes: []*kvrwset.KVWrite{
-				{
-					Key:   "key-2",
-					Value: []byte("value-2"),
+		proto.Equal(
+			&kvrwset.KVRWSet{
+				Writes: []*kvrwset.KVWrite{
+					{
+						Key:   "key-2",
+						Value: []byte("value-2"),
+					},
 				},
 			},
-		},
 			testRetrieveDataValue(t, s, dataKeyColl1).KvRwSet,
 		))
 	require.True(t, testDataKeyExists(t, s, dataKeyColl2))
@@ -1387,7 +1486,8 @@ func TestStoreProcessPurgeMarker(t *testing.T) {
 	// Add a purge marker for key-2 at block-5
 	require.NoError(
 		t,
-		s.Commit(5, testDataForBlk1, nil,
+		s.Commit(
+			5, testDataForBlk1, nil,
 			[]*PurgeMarker{
 				{
 					Ns:         "ns-1",
@@ -1410,11 +1510,13 @@ func TestStoreProcessPurgeMarker(t *testing.T) {
 	// this should cause purging key-2 (e.g., all keys) from data
 	require.True(t, testDataKeyExists(t, s, dataKeyColl1))
 	tmp := testRetrieveDataValue(t, s, dataKeyColl1)
-	require.Equal(t,
+	require.Equal(
+		t,
 		"coll-1",
 		tmp.CollectionName,
 	)
-	require.True(t,
+	require.True(
+		t,
 		proto.Equal(&kvrwset.KVRWSet{}, tmp.KvRwSet),
 	)
 	require.True(t, testDataKeyExists(t, s, dataKeyColl2))
@@ -1551,7 +1653,7 @@ func TestRemoveAppInitiatedPurgesUsingReconMarker(t *testing.T) {
 	s := env.TestStore
 
 	// commit 5 blocks
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		require.NoError(t, s.Commit(uint64(i), nil, nil, nil))
 	}
 
@@ -1568,7 +1670,8 @@ func TestRemoveAppInitiatedPurgesUsingReconMarker(t *testing.T) {
 	require.Equal(t, kvHahses, returnedKVHahes)
 
 	// add a marker for one key in a collection
-	require.NoError(t,
+	require.NoError(
+		t,
 		s.Commit(5, nil, nil, []*PurgeMarker{
 			{
 				Ns:         "ns-1",
@@ -1588,7 +1691,8 @@ func TestRemoveAppInitiatedPurgesUsingReconMarker(t *testing.T) {
 	// a lower block query should cause trimming
 	returnedKVHahes, err = s.RemoveAppInitiatedPurgesUsingReconMarker(kvHahses, "ns-1", "coll-1", 5, 0)
 	require.NoError(t, err)
-	require.Equal(t,
+	require.Equal(
+		t,
 		map[string][]byte{
 			"key-2-hash": nil,
 			"key-3-hash": nil,
@@ -1666,7 +1770,8 @@ func testCollElgEnabled(t *testing.T, conf *PrivateDataConfig) {
 
 	// Enable eligibility for {ns-2:coll2}
 	require.NoError(t,
-		testStore.ProcessCollsEligibilityEnabled(6,
+		testStore.ProcessCollsEligibilityEnabled(
+			6,
 			map[string][]string{
 				"ns-2": {"coll-2"},
 			},

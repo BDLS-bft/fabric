@@ -19,9 +19,9 @@ import (
 	"syscall"
 	"time"
 
-	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -44,7 +44,7 @@ var _ = Describe("Gossip State Transfer and Membership", func() {
 		testDir, err = os.MkdirTemp("", "gossip-statexfer")
 		Expect(err).NotTo(HaveOccurred())
 
-		dockerClient, err := docker.NewClientFromEnv()
+		dockerClient, err := dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		channelName = "testchannel"
@@ -449,7 +449,7 @@ func forceLowS(priv *ecdsa.PrivateKey, hash []byte) (r, s *big.Int, err error) {
 }
 
 func runTransactions(n *nwo.Network, orderer *nwo.Orderer, peer *nwo.Peer, chaincodeName string, channelID string) {
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		sess, err := n.PeerUserSession(peer, "User1", commands.ChaincodeInvoke{
 			ChannelID: channelID,
 			Orderer:   n.OrdererAddress(orderer, nwo.ListenPort),

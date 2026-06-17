@@ -21,6 +21,7 @@ import (
 	"github.com/onsi/gomega/gbytes"
 	"github.com/onsi/gomega/gstruct"
 	"github.com/onsi/gomega/types"
+	"github.com/pkg/errors"
 	ginkgomon "github.com/tedsuo/ifrit/ginkgomon_v2"
 	"google.golang.org/protobuf/proto"
 )
@@ -41,7 +42,9 @@ func Join(n *Network, o *Orderer, channel string, block *common.Block, expectedC
 	if n.TLSEnabled {
 		client = authClient
 	}
-	body := doBody(client, req)
+	body, status, err := doBody(client, req)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(status).To(Equal(http.StatusCreated), string(body))
 	c := &ChannelInfo{}
 	err = json.Unmarshal(body, c)
 	Expect(err).NotTo(HaveOccurred())
@@ -64,15 +67,88 @@ func GenerateJoinRequest(url, channel string, blockBytes []byte) *http.Request {
 	return req
 }
 
-func doBody(client *http.Client, req *http.Request) []byte {
-	resp, err := client.Do(req)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
-	bodyBytes, err := io.ReadAll(resp.Body)
-	Expect(err).NotTo(HaveOccurred())
-	resp.Body.Close()
+func Update(n *Network, o *Orderer, channel string, envelope *common.Envelope) {
+	UpdateTimeShift(n, o, channel, envelope, 0)
+}
 
-	return bodyBytes
+func UpdateTimeShift(n *Network, o *Orderer, channel string, envelope *common.Envelope, timeShift time.Duration) {
+	UpdateFull(n, o, channel, envelope, timeShift, http.StatusCreated, "")
+}
+
+func UpdateWithStatus(n *Network, o *Orderer, channel string, envelope *common.Envelope, expectedStatus int, errStr string) {
+	UpdateFull(n, o, channel, envelope, 0, expectedStatus, errStr)
+}
+
+func UpdateFull(n *Network, o *Orderer, channel string, envelope *common.Envelope, timeShift time.Duration, expectedStatus int, errStr string) {
+	envelopeBytes, err := proto.Marshal(envelope)
+	Expect(err).NotTo(HaveOccurred())
+
+	protocol := "http"
+	if n.TLSEnabled {
+		protocol = "https"
+	}
+	url := fmt.Sprintf("%s://127.0.0.1:%d/participation/v1/channels", protocol, n.OrdererPort(o, AdminPort))
+	authClient, unauthClient := OrdererOperationalClientsTimeShift(n, o, timeShift)
+
+	client := unauthClient
+	if n.TLSEnabled {
+		client = authClient
+	}
+	var (
+		body      []byte
+		status    int
+		errString string
+	)
+
+	Eventually(func() bool {
+		req := GenerateUpdateRequest(url, channel, envelopeBytes)
+		body, status, err = doBody(client, req)
+		if err != nil {
+			errString = err.Error()
+		}
+		return status == expectedStatus && err == nil
+	}, n.EventuallyTimeout).Should(BeTrue(), string(body), errString)
+
+	if errStr != "" {
+		Expect(string(body)).To(ContainSubstring(errStr))
+
+		return
+	}
+	c := &ChannelInfo{}
+	err = json.Unmarshal(body, c)
+	Expect(err).NotTo(HaveOccurred())
+}
+
+func GenerateUpdateRequest(url, channel string, envelopeBytes []byte) *http.Request {
+	updateBody := new(bytes.Buffer)
+	writer := multipart.NewWriter(updateBody)
+	part, err := writer.CreateFormFile("config-update-envelope", fmt.Sprintf("%s-update.envelope", channel))
+	Expect(err).NotTo(HaveOccurred())
+	part.Write(envelopeBytes)
+	err = writer.Close()
+	Expect(err).NotTo(HaveOccurred())
+
+	req, err := http.NewRequest(http.MethodPut, url, updateBody)
+	Expect(err).NotTo(HaveOccurred())
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	return req
+}
+
+func doBody(client *http.Client, req *http.Request) ([]byte, int, error) {
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return bodyBytes, resp.StatusCode, nil
 }
 
 type ChannelList struct {
@@ -114,6 +190,20 @@ func getBody(client *http.Client, url string) func() string {
 	}
 }
 
+func getBodyBinary(client *http.Client, url string) func() ([]byte, error) {
+	return func() ([]byte, error) {
+		resp, err := client.Get(url)
+		Expect(err).NotTo(HaveOccurred())
+		bodyBytes, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, errors.New(string(bodyBytes))
+		}
+		return bodyBytes, nil
+	}
+}
+
 type ChannelInfo struct {
 	Name              string `json:"name"`
 	URL               string `json:"url"`
@@ -136,6 +226,30 @@ func ListOne(n *Network, o *Orderer, channel string) ChannelInfo {
 	err := json.Unmarshal([]byte(body), c)
 	Expect(err).NotTo(HaveOccurred())
 	return *c
+}
+
+func Fetch(n *Network, o *Orderer, channel string, blockID string) (*common.Block, error) {
+	return FetchTimeShift(n, o, channel, blockID, 0)
+}
+
+func FetchTimeShift(n *Network, o *Orderer, channel string, blockID string, timeShift time.Duration) (*common.Block, error) {
+	authClient, _ := OrdererOperationalClientsTimeShift(n, o, timeShift)
+
+	protocol := "http"
+	if n.TLSEnabled {
+		protocol = "https"
+	}
+	fetchURL := fmt.Sprintf("%s://127.0.0.1:%d/participation/v1/channels/%s/blocks/%s", protocol, n.OrdererPort(o, AdminPort), channel, blockID)
+
+	body, err := getBodyBinary(authClient, fetchURL)()
+	if err != nil {
+		return nil, err
+	}
+
+	b := &common.Block{}
+	err = proto.Unmarshal(body, b)
+
+	return b, err
 }
 
 func Remove(n *Network, o *Orderer, channel string) {
@@ -196,7 +310,8 @@ func JoinOrdererJoinPeersAppChannel(network *Network, channelID string, orderer 
 
 	ginkgo.By(fmt.Sprintf("waiting for leader on channel %s", channelID))
 	Eventually(ordererRunner.Err(), network.EventuallyTimeout, time.Second).Should(
-		gbytes.Say(fmt.Sprintf("Raft leader changed: 0 -> 1 channel=%s node=1", channelID)))
+		gbytes.Say(fmt.Sprintf("Raft leader changed: 0 -> 1 channel=%s node=1", channelID)),
+	)
 
 	ginkgo.By(fmt.Sprintf("joining peers to the channel %s", channelID))
 	peers := network.PeersWithChannel(channelID)
@@ -218,7 +333,8 @@ func JoinOrdererAppChannel(network *Network, channelID string, orderer *Orderer,
 
 	ginkgo.By(fmt.Sprintf("waiting for leader on channel %s", channelID))
 	Eventually(ordererRunner.Err(), network.EventuallyTimeout, time.Second).Should(
-		gbytes.Say(fmt.Sprintf("Raft leader changed: 0 -> 1 channel=%s node=1", channelID)))
+		gbytes.Say(fmt.Sprintf("Raft leader changed: 0 -> 1 channel=%s node=1", channelID)),
+	)
 }
 
 // JoinOrderersAppChannelCluster Joins a set of orderers to a channel for which the genesis block was created by the network

@@ -531,7 +531,8 @@ func TestUtilityFunctions(t *testing.T) {
 		testVal := fmt.Sprintf(`{"%s":"dummyVal"}`, reservedField)
 		err = db.ValidateKeyValue("testKey", []byte(testVal))
 		require.Error(t, err, fmt.Sprintf(
-			"ValidateKey should have thrown an error for a json value %s, as contains one of the reserved fields", testVal))
+			"ValidateKey should have thrown an error for a json value %s, as contains one of the reserved fields", testVal,
+		))
 	}
 
 	// ValidateKeyValue should not return an error for a json value that contains one of the reserved fields
@@ -540,7 +541,8 @@ func TestUtilityFunctions(t *testing.T) {
 		testVal := fmt.Sprintf(`{"data.%s":"dummyVal"}`, reservedField)
 		err = db.ValidateKeyValue("testKey", []byte(testVal))
 		require.NoError(t, err, fmt.Sprintf(
-			"ValidateKey should not have thrown an error the json value %s since the reserved field was not at the top level", testVal))
+			"ValidateKey should not have thrown an error the json value %s since the reserved field was not at the top level", testVal,
+		))
 	}
 
 	// ValidateKeyValue should return an error for a key that begins with an underscore
@@ -1110,7 +1112,8 @@ func TestFormatCheck(t *testing.T) {
 			fmt.Sprintf("testCase %d", i),
 			func(t *testing.T) {
 				testFormatCheck(t, testCase.dataFormat, testCase.dataExists, testCase.expectedErr, testCase.expectedFormat, vdbEnv)
-			})
+			},
+		)
 	}
 }
 
@@ -1370,7 +1373,7 @@ func TestChannelMetadata(t *testing.T) {
 
 	// call getNamespaceDBHandle for new dbs, verify that new db names are added to dbMetadataMapping
 	namepsaces := make([]string, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		ns := fmt.Sprintf("nsname_%d", i)
 		_, err := vdb.getNamespaceDBHandle(ns)
 		require.NoError(t, err)
@@ -1558,7 +1561,7 @@ func TestRangeQueryWithInternalLimitAndPageSize(t *testing.T) {
 			VersionedValue: &statedb.VersionedValue{Value: []byte("v0"), Version: ver, Metadata: []byte("m0")},
 		}
 		sampleData = append(sampleData, sampleKV)
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			sampleKV = &statedb.VersionedKV{
 				CompositeKey: &statedb.CompositeKey{
 					Namespace: "ns1",
@@ -1877,7 +1880,7 @@ func TestFullScanIteratorDeterministicJSONOutput(t *testing.T) {
 	generateSampleData := func(ns string, sortedJSON bool) []*statedb.VersionedKV {
 		sampleData := []*statedb.VersionedKV{}
 		ver := version.NewHeight(1, 1)
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			sampleKV := &statedb.VersionedKV{
 				CompositeKey: &statedb.CompositeKey{
 					Namespace: ns,
@@ -1943,7 +1946,7 @@ func TestFullScanIteratorSkipInternalKeys(t *testing.T) {
 	generateSampleData := func(ns string, keys []string) []*statedb.VersionedKV {
 		sampleData := []*statedb.VersionedKV{}
 		ver := version.NewHeight(1, 1)
-		for i := 0; i < len(keys); i++ {
+		for i := range keys {
 			sampleKV := &statedb.VersionedKV{
 				CompositeKey: &statedb.CompositeKey{
 					Namespace: ns,

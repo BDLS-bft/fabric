@@ -18,7 +18,6 @@ import (
 	"strings"
 	"syscall"
 
-	docker "github.com/fsouza/go-dockerclient"
 	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
 	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset/kvrwset"
@@ -32,6 +31,7 @@ import (
 	"github.com/hyperledger/fabric/integration/pvtdata/marblechaincodeutil"
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/protoutil"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -98,7 +98,8 @@ var _ = Describe("PrivateData", func() {
 				Sequence:          "1",
 			}
 			deployChaincode(network, orderer, testChaincode)
-			marblechaincodeutil.AddMarble(network, orderer, channelID, testChaincode.Name,
+			marblechaincodeutil.AddMarble(
+				network, orderer, channelID, testChaincode.Name,
 				`{"name":"marble1", "color":"blue", "size":35, "owner":"tom", "price":99}`,
 				network.Peer("Org1", "peer0"),
 			)
@@ -162,7 +163,8 @@ var _ = Describe("PrivateData", func() {
 				deployChaincode(network, orderer, testChaincode)
 				peer := network.Peer("Org1", "peer0")
 				By("adding marble1")
-				marblechaincodeutil.AddMarble(network, orderer, channelID, testChaincode.Name,
+				marblechaincodeutil.AddMarble(
+					network, orderer, channelID, testChaincode.Name,
 					`{"name":"marble1", "color":"blue", "size":35, "owner":"tom", "price":99}`,
 					peer,
 				)
@@ -269,21 +271,22 @@ var _ = Describe("PrivateData", func() {
 			Eventually(p.Ready(), network.EventuallyTimeout).Should(BeClosed())
 
 			By("joining peer1.org2 to the channel with its Admin2 user")
+			block, err := nwo.Fetch(network, orderer, channelID, "0")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(block).NotTo(BeNil())
+
 			tempFile, err := os.CreateTemp("", "genesis-block")
 			Expect(err).NotTo(HaveOccurred())
 			tempFile.Close()
 			defer os.Remove(tempFile.Name())
 
-			sess, err := network.PeerUserSession(org2Peer1, "Admin2", commands.ChannelFetch{
-				Block:      "0",
-				ChannelID:  channelID,
-				Orderer:    network.OrdererAddress(orderer, nwo.ListenPort),
-				OutputFile: tempFile.Name(),
-			})
+			b, err := proto.Marshal(block)
 			Expect(err).NotTo(HaveOccurred())
-			Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
 
-			sess, err = network.PeerUserSession(org2Peer1, "Admin2", commands.ChannelJoin{
+			err = os.WriteFile(tempFile.Name(), b, 0o644)
+			Expect(err).NotTo(HaveOccurred())
+
+			sess, err := network.PeerUserSession(org2Peer1, "Admin2", commands.ChannelJoin{
 				BlockPath: tempFile.Name(),
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -445,7 +448,8 @@ var _ = Describe("PrivateData", func() {
 				By("deploying chaincode and adding marble1")
 				testChaincode = newLifecycleChaincode
 				deployChaincode(network, orderer, testChaincode)
-				marblechaincodeutil.AddMarble(network, orderer, channelID, testChaincode.Name,
+				marblechaincodeutil.AddMarble(
+					network, orderer, channelID, testChaincode.Name,
 					`{"name":"marble1", "color":"blue", "size":35, "owner":"tom", "price":99}`,
 					network.Peer("Org1", "peer0"),
 				)
@@ -474,7 +478,8 @@ var _ = Describe("PrivateData", func() {
 						testChaincode.CollectionsConfig = CollectionConfig("collections_config2.json")
 						testChaincode.Sequence = "2"
 						upgradeChaincode(network, orderer, testChaincode)
-						marblechaincodeutil.AddMarble(network, orderer, channelID, testChaincode.Name,
+						marblechaincodeutil.AddMarble(
+							network, orderer, channelID, testChaincode.Name,
 							`{"name":"marble2", "color":"yellow", "size":53, "owner":"jerry", "price":22}`,
 							network.Peer("Org2", "peer0"),
 						)
@@ -522,7 +527,7 @@ var _ = Describe("PrivateData", func() {
 				eligiblePeer := network.Peer("Org2", "peer0")
 				ccName := testChaincode.Name
 				By("adding three blocks")
-				for i := 0; i < 3; i++ {
+				for i := range 3 {
 					marblechaincodeutil.AddMarble(network, orderer, channelID, ccName, fmt.Sprintf(`{"name":"test-marble-%d", "color":"blue", "size":35, "owner":"tom", "price":99}`, i), eligiblePeer)
 				}
 
@@ -729,7 +734,7 @@ var _ = Describe("PrivateData", func() {
 			// Verifies marble private chaincode APIs: getMarblesByRange, transferMarble, delete
 
 			By("adding five marbles")
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				marblechaincodeutil.AddMarble(network, orderer, channelID, ccName, fmt.Sprintf(`{"name":"test-marble-%d", "color":"blue", "size":35, "owner":"tom", "price":99}`, i), eligiblePeer)
 			}
 
@@ -812,7 +817,8 @@ var _ = Describe("PrivateData", func() {
 			assertPrivateDataAsExpected(event.BlockAndPvtData.PrivateDataMap, expectedKVWritesMap)
 
 			By("adding a new marble after upgrade")
-			marblechaincodeutil.AddMarble(network, orderer, channelID, testChaincode.Name,
+			marblechaincodeutil.AddMarble(
+				network, orderer, channelID, testChaincode.Name,
 				`{"name":"marble12", "color":"blue", "size":35, "owner":"tom", "price":99}`,
 				network.Peer("Org1", "peer0"),
 			)
@@ -868,7 +874,7 @@ func initThreeOrgsSetup(removePeer1 bool) *nwo.Network {
 	testDir, err := os.MkdirTemp("", "e2e-pvtdata")
 	Expect(err).NotTo(HaveOccurred())
 
-	client, err := docker.NewClientFromEnv()
+	client, err := dcli.New(dcli.FromEnv)
 	Expect(err).NotTo(HaveOccurred())
 
 	config := nwo.FullEtcdRaft()
@@ -950,18 +956,11 @@ func addPeer(n *nwo.Network, orderer *nwo.Orderer, peer *nwo.Peer) ifrit.Process
 
 	n.JoinChannel(channelID, orderer, peer)
 	ledgerHeight := nwo.GetLedgerHeight(n, n.Peers[0], channelID)
-	sess, err := n.PeerAdminSession(
-		peer,
-		commands.ChannelFetch{
-			Block:      "newest",
-			ChannelID:  channelID,
-			Orderer:    n.OrdererAddress(orderer, nwo.ListenPort),
-			OutputFile: filepath.Join(n.RootDir, "newest_block.pb"),
-		},
-	)
+
+	b, err := nwo.Fetch(n, orderer, channelID, "newest")
 	Expect(err).NotTo(HaveOccurred())
-	Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
-	Expect(sess.Err).To(gbytes.Say(fmt.Sprintf("Received block: %d", ledgerHeight-1)))
+	Expect(b).NotTo(BeNil())
+	Expect(b.GetHeader().GetNumber()).To(Equal(uint64(ledgerHeight) - 1))
 
 	n.Peers = append(n.Peers, peer)
 	nwo.WaitUntilEqualLedgerHeight(n, channelID, nwo.GetLedgerHeight(n, n.Peers[0], channelID), n.Peers...)
@@ -1304,7 +1303,8 @@ func updateConfigWithNewCertsForPeer(network *nwo.Network, tempCryptoDir string,
 	oldConfig := &mspp.MSPConfig{}
 	err := proto.Unmarshal(
 		updatedConfig.ChannelGroup.Groups["Application"].Groups[org.Name].Values["MSP"].Value,
-		oldConfig)
+		oldConfig,
+	)
 	Expect(err).NotTo(HaveOccurred())
 
 	tempOrgMSPPath := filepath.Join(tempCryptoDir, "peerOrganizations", org.Domain, "msp")
@@ -1325,7 +1325,8 @@ func updateConfigWithNewCertsForPeer(network *nwo.Network, tempCryptoDir string,
 		&mspp.MSPConfig{
 			Type:   oldConfig.Type,
 			Config: protoutil.MarshalOrPanic(oldMspConfig),
-		})
+		},
+	)
 	nwo.UpdateConfig(network, orderer, channelID, currentConfig, updatedConfig, false, network.Peer(org.Name, "peer0"), nil)
 }
 

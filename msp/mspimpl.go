@@ -163,7 +163,8 @@ func NewBccspMspWithKeyStore(version MSPVersion, keyStore bccsp.KeyStore, bccsp 
 	csp, err := sw.NewWithParams(
 		factory.GetDefaultOpts().SW.Security,
 		factory.GetDefaultOpts().SW.Hash,
-		keyStore)
+		keyStore,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -888,7 +889,7 @@ func (msp *bccspmsp) getCertificationChainIdentifierFromChain(chain []*x509.Cert
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed getting hash function when computing certification chain identifier")
 	}
-	for i := 0; i < len(chain); i++ {
+	for i := range chain {
 		hf.Write(chain[i].Raw)
 	}
 	return hf.Sum(nil), nil

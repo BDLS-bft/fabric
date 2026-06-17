@@ -309,13 +309,14 @@ func TestInitializeServerConfig(t *testing.T) {
 					},
 				},
 			}
-			require.PanicsWithValue(t, tc.expectedPanic, func() {
-				if !tc.isCluster {
-					initializeServerConfig(conf, nil)
-				} else {
-					initializeClusterClientConfig(conf)
-				}
-			},
+			require.PanicsWithValue(
+				t, tc.expectedPanic, func() {
+					if !tc.isCluster {
+						initializeServerConfig(conf, nil)
+					} else {
+						initializeClusterClientConfig(conf)
+					}
+				},
 			)
 		})
 	}
@@ -955,7 +956,7 @@ func genesisConfig(t *testing.T, genesisFile string) *localconfig.TopLevel {
 }
 
 func panicMsg(f func()) string {
-	var message interface{}
+	var message any
 	func() {
 		defer func() {
 			message = recover()

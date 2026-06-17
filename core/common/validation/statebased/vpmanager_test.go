@@ -137,7 +137,8 @@ func rwsetUpdatingMetadataFor(cc, key string) []byte {
 					}),
 				},
 			},
-		})
+		},
+	)
 }
 
 func pvtRwsetUpdatingMetadataFor(cc, coll, key string) []byte {
@@ -166,7 +167,8 @@ func pvtRwsetUpdatingMetadataFor(cc, coll, key string) []byte {
 					},
 				},
 			},
-		})
+		},
+	)
 }
 
 func runFunctions(t *testing.T, seed [32]byte, funcs ...func()) {
@@ -790,7 +792,7 @@ func TestForRaces(t *testing.T) {
 
 	nRoutines := 1000
 	funcArray := make([]func(), nRoutines)
-	for i := 0; i < nRoutines; i++ {
+	for i := range nRoutines {
 		txnum := i
 		funcArray[i] = func() {
 			key := strconv.Itoa(txnum)

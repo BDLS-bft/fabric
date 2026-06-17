@@ -27,9 +27,9 @@ import (
 	"github.com/hyperledger/fabric/orderer/consensus"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
-	"go.etcd.io/etcd/raft/v3"
-	"go.etcd.io/etcd/raft/v3/raftpb"
-	"go.etcd.io/etcd/server/v3/wal"
+	"go.etcd.io/etcd/server/v3/storage/wal"
+	"go.etcd.io/raft/v3"
+	"go.etcd.io/raft/v3/raftpb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/protoadapt"
 )
@@ -329,9 +329,9 @@ func NewChain(
 		DisableProposalForwarding: true, // This prevents blocks from being accidentally proposed by followers
 	}
 
-	disseminator := &Disseminator{RPC: c.rpc}
-	disseminator.UpdateMetadata(nil) // initialize
 	c.ActiveNodes.Store([]uint64{})
+	disseminator := &Disseminator{RPC: c.rpc, Logger: c.logger, C: c}
+	disseminator.UpdateMetadata(nil) // initialize
 
 	c.Node = &node{
 		chainID:      c.channelID,
@@ -535,6 +535,7 @@ func (c *Chain) Consensus(req *orderer.ConsensusRequest, sender uint64) error {
 
 	c.Metrics.ActiveNodes.Set(float64(len(clusterMetadata.ActiveNodes)))
 	c.ActiveNodes.Store(clusterMetadata.ActiveNodes)
+	c.logger.Infof("Store ActiveNodes %+v", clusterMetadata.ActiveNodes)
 
 	return nil
 }
@@ -1543,6 +1544,7 @@ func (c *Chain) ValidateConsensusMetadata(oldOrdererConfig, newOrdererConfig cha
 
 	active := c.ActiveNodes.Load().([]uint64)
 	if changes.UnacceptableQuorumLoss(active) {
+		c.logger.Debugf("%d out of %d nodes are alive - %+v", len(active), len(dummyOldConsentersMap), active)
 		return errors.Errorf("%d out of %d nodes are alive, configuration will result in quorum loss", len(active), len(dummyOldConsentersMap))
 	}
 

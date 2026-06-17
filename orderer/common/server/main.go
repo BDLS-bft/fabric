@@ -101,6 +101,7 @@ func Main() {
 	flogging.SetObserver(logObserver)
 
 	serverConfig := initializeServerConfig(conf, metricsProvider)
+	serverConfig.HealthCheckEnabled = true
 	grpcServer := initializeGrpcServer(conf, serverConfig)
 	caMgr := &caManager{
 		appRootCAsByChain:     make(map[string][][]byte),
@@ -162,7 +163,8 @@ func Main() {
 		expirationLogger.Infof,
 		expirationLogger.Warnf, // This can be used to piggyback a metric event in the future
 		time.Now(),
-		time.AfterFunc)
+		time.AfterFunc,
+	)
 
 	// if cluster is reusing client-facing server, then it is already
 	// appended to serversToUpdate at this point.
@@ -675,6 +677,7 @@ func newAdminServer(admin localconfig.Admin) *fabhttp.Server {
 			KeyFile:            admin.TLS.PrivateKey,
 			ClientCertRequired: admin.TLS.ClientAuthRequired,
 			ClientCACertFiles:  admin.TLS.ClientRootCAs,
+			TimeShift:          admin.TLS.TLSHandshakeTimeShift,
 		},
 	})
 }
@@ -817,7 +820,7 @@ func (mgr *caManager) updateClusterDialer(
 	clusterDialer.UpdateRootCAs(clusterRootCAsBytes)
 }
 
-func prettyPrintStruct(i interface{}) {
+func prettyPrintStruct(i any) {
 	params := localconfig.Flatten(i)
 	var buffer bytes.Buffer
 	for i := range params {

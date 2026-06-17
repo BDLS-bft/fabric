@@ -14,13 +14,14 @@ import (
 	"io"
 	"strings"
 
-	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/metadata"
 	"github.com/hyperledger/fabric/core/chaincode/platforms/golang"
 	"github.com/hyperledger/fabric/core/chaincode/platforms/java"
 	"github.com/hyperledger/fabric/core/chaincode/platforms/node"
 	"github.com/hyperledger/fabric/core/chaincode/platforms/util"
+	dcli "github.com/moby/moby/client"
 	"github.com/pkg/errors"
 )
 
@@ -36,7 +37,7 @@ var SupportedPlatforms = []Platform{
 type Platform interface {
 	Name() string
 	GenerateDockerfile() (string, error)
-	DockerBuildOptions(path string) (util.DockerBuildOptions, error)
+	DockerBuildOptions(path string, goVersion string, osVersion string, archVersion string) (util.DockerBuildOptions, error)
 }
 
 type PackageWriter interface {
@@ -49,7 +50,7 @@ func (pw PackageWriterWrapper) Write(name string, payload []byte, tw *tar.Writer
 	return pw(name, payload, tw)
 }
 
-type BuildFunc func(util.DockerBuildOptions, *docker.Client) error
+type BuildFunc func(util.DockerBuildOptions, dcli.APIClient) error
 
 type Registry struct {
 	Platforms     map[string]Platform
@@ -107,7 +108,7 @@ func (r *Registry) GenerateDockerfile(ccType string) (string, error) {
 	return contents, nil
 }
 
-func (r *Registry) StreamDockerBuild(ccType, path string, codePackage io.Reader, inputFiles map[string][]byte, tw *tar.Writer, client *docker.Client) error {
+func (r *Registry) StreamDockerBuild(ccType, path string, codePackage io.Reader, inputFiles map[string][]byte, tw *tar.Writer, client dcli.APIClient) error {
 	var err error
 
 	// ----------------------------------------------------------------------------------------------------
@@ -128,7 +129,19 @@ func (r *Registry) StreamDockerBuild(ccType, path string, codePackage io.Reader,
 		}
 	}
 
-	buildOptions, err := platform.DockerBuildOptions(path)
+	var (
+		goVersion   string
+		osVersion   string
+		archVersion string
+	)
+	if ccType == pb.ChaincodeSpec_GOLANG.String() {
+		goVersion, osVersion, archVersion, err = util.ParamsImage(client)
+		if err != nil {
+			return errors.Wrap(err, "get params docker image failed")
+		}
+	}
+
+	buildOptions, err := platform.DockerBuildOptions(path, goVersion, osVersion, archVersion)
 	if err != nil {
 		return errors.Wrap(err, "platform failed to create docker build options")
 	}
@@ -163,7 +176,7 @@ func writeBytesToPackage(name string, payload []byte, tw *tar.Writer) error {
 	return nil
 }
 
-func (r *Registry) GenerateDockerBuild(ccType, path string, codePackage io.Reader, client *docker.Client) (io.Reader, error) {
+func (r *Registry) GenerateDockerBuild(ccType, path string, codePackage io.Reader, client dcli.APIClient) (io.Reader, error) {
 	inputFiles := make(map[string][]byte)
 
 	// ----------------------------------------------------------------------------------------------------

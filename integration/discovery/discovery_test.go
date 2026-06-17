@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric-protos-go-apiv2/discovery"
 	pm "github.com/hyperledger/fabric-protos-go-apiv2/msp"
@@ -24,6 +23,7 @@ import (
 	. "github.com/hyperledger/fabric/internal/test"
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/protoutil"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -36,7 +36,7 @@ import (
 var _ = Describe("DiscoveryService", func() {
 	var (
 		testDir        string
-		client         *docker.Client
+		client         dcli.APIClient
 		config         *nwo.Config
 		network        *nwo.Network
 		ordererRunner  *ginkgomon.Runner
@@ -53,7 +53,7 @@ var _ = Describe("DiscoveryService", func() {
 		testDir, err = os.MkdirTemp("", "e2e-sd")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		config = nwo.BasicEtcdRaft()
@@ -193,7 +193,8 @@ var _ = Describe("DiscoveryService", func() {
 				CA:            &nwo.CA{Hostname: "ca"},
 			})
 			config.Profiles[0].Organizations = append(config.Profiles[0].Organizations, "Org3")
-			config.Peers = append(config.Peers,
+			config.Peers = append(
+				config.Peers,
 				&nwo.Peer{
 					Name:         "peer0",
 					Organization: "Org3",
@@ -296,7 +297,8 @@ var _ = Describe("DiscoveryService", func() {
 			for _, orderer := range network.Orderers {
 				ordererMSPID := network.Organization(orderer.Organization).MSPID
 				for _, endpoint := range discoveredConfig.Orderers[ordererMSPID].Endpoint {
-					if proto.Equal(endpoint,
+					if proto.Equal(
+						endpoint,
 						&discovery.Endpoint{Host: "127.0.0.1", Port: uint32(network.OrdererPort(orderer, nwo.ListenPort))},
 					) {
 						continue external

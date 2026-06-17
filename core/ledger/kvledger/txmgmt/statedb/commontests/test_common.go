@@ -8,6 +8,7 @@ package commontests
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1032,7 +1033,7 @@ func TestDataExportImport(
 	generateSampleData := func(namespaces ...string) []*statedb.VersionedKV {
 		sampleData := []*statedb.VersionedKV{}
 		for _, ns := range namespaces {
-			for i := 0; i < 6; i++ {
+			for i := range 6 {
 				sampleKV := &statedb.VersionedKV{
 					CompositeKey: &statedb.CompositeKey{
 						Namespace: ns,
@@ -1072,7 +1073,7 @@ func TestDataExportImport(
 	verifyExportImport := func(destDBName string, skipNamespaces stringset) {
 		fullScanItr, err := sourceDB.GetFullScanIterator(
 			func(ns string) bool {
-				return skipNamespaces.contains(ns)
+				return slices.Contains(skipNamespaces, ns)
 			},
 		)
 		require.NoError(t, err)
@@ -1143,7 +1144,7 @@ func TestDataExportImport(
 func CreateTestData(t *testing.T, db statedb.VersionedDB, ns string, numKeys int) []string {
 	batch := statedb.NewUpdateBatch()
 	expectedKeys := make([]string, numKeys)
-	for i := 0; i < numKeys; i++ {
+	for i := range numKeys {
 		expectedKeys[i] = fmt.Sprintf("key%d", i)
 		vv := statedb.VersionedValue{Value: fmt.Appendf(nil, "value%d", i), Version: version.NewHeight(1, uint64(i+1))}
 		batch.Put(ns, expectedKeys[i], vv.Value, vv.Version)
@@ -1162,19 +1163,10 @@ func CreateTestData(t *testing.T, db statedb.VersionedDB, ns string, numKeys int
 
 type stringset []string
 
-func (s stringset) contains(str string) bool {
-	for _, element := range s {
-		if element == str {
-			return true
-		}
-	}
-	return false
-}
-
 func (s stringset) minus(toMinus stringset) stringset {
 	var final stringset
 	for _, element := range s {
-		if toMinus.contains(element) {
+		if slices.Contains(toMinus, element) {
 			continue
 		}
 		final = append(final, element)

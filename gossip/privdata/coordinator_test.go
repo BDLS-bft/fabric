@@ -112,7 +112,7 @@ func (fc *fetchCall) expectingDigests(digests []privdatacommon.DigKey) *fetchCal
 	return fc
 }
 
-func (fc *fetchCall) Return(returnArguments ...interface{}) *mock.Call {
+func (fc *fetchCall) Return(returnArguments ...any) *mock.Call {
 	return fc.Call.Return(returnArguments...)
 }
 
@@ -123,7 +123,7 @@ type fetcherMock struct {
 	expectedEndorsers map[string]struct{}
 }
 
-func (f *fetcherMock) On(methodName string, arguments ...interface{}) *fetchCall {
+func (f *fetcherMock) On(methodName string, arguments ...any) *fetchCall {
 	return &fetchCall{
 		fetcher: f,
 		Call:    f.Mock.On(methodName, arguments...),
@@ -131,7 +131,7 @@ func (f *fetcherMock) On(methodName string, arguments ...interface{}) *fetchCall
 }
 
 func (f *fetcherMock) fetch(dig2src dig2sources) (*privdatacommon.FetchedPvtDataContainer, error) {
-	uniqueEndorsements := make(map[string]interface{})
+	uniqueEndorsements := make(map[string]any)
 	for _, endorsements := range dig2src {
 		for _, endorsement := range endorsements {
 			_, exists := f.expectedEndorsers[string(endorsement.Endorser)]
@@ -178,7 +178,8 @@ func (s *testTransientStore) tearDown() {
 }
 
 func (s *testTransientStore) Persist(txid string, blockHeight uint64,
-	privateSimulationResultsWithConfig *tspb.TxPvtReadWriteSetWithConfigInfo) error {
+	privateSimulationResultsWithConfig *tspb.TxPvtReadWriteSetWithConfigInfo,
+) error {
 	return s.store.Persist(txid, blockHeight, privateSimulationResultsWithConfig)
 }
 
@@ -1185,7 +1186,7 @@ func TestCoordinatorStoreBlock(t *testing.T) {
 
 	fmt.Println("Scenario V")
 	// Scenario V: Block we got has private data alongside it but coordinator cannot retrieve collection access
-	// policy of collections due to databse unavailability error.
+	// policy of collections due to database unavailability error.
 	// we verify that the error propagates properly.
 	mockCs := &privdatamocks.CollectionStore{}
 	mockCs.On("RetrieveCollectionConfig", mock.Anything).Return(nil, errors.New("test error"))
@@ -1647,7 +1648,7 @@ func TestPurgeBelowHeight(t *testing.T) {
 	defer store.tearDown()
 
 	// store 9 data sets initially
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		txID := fmt.Sprintf("tx%d", i+1)
 		store.Persist(txID, uint64(i), &tspb.TxPvtReadWriteSetWithConfigInfo{
 			PvtRwset: &rwset.TxPvtReadWriteSet{
@@ -1960,34 +1961,40 @@ func TestCoordinatorMetrics(t *testing.T) {
 
 	// make sure all coordinator metrics were reported
 
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", "testchannelid"},
 		testMetricProvider.FakeValidationDuration.WithArgsForCall(0),
 	)
 	require.True(t, testMetricProvider.FakeValidationDuration.ObserveArgsForCall(0) > 0)
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", "testchannelid"},
 		testMetricProvider.FakeListMissingPrivateDataDuration.WithArgsForCall(0),
 	)
 	require.True(t, testMetricProvider.FakeListMissingPrivateDataDuration.ObserveArgsForCall(0) > 0)
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", "testchannelid"},
 		testMetricProvider.FakeFetchDuration.WithArgsForCall(0),
 	)
 	// fetch duration metric only reported when fetching from remote peer
 	require.True(t, testMetricProvider.FakeFetchDuration.ObserveArgsForCall(0) > 0)
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", "testchannelid"},
 		testMetricProvider.FakeCommitPrivateDataDuration.WithArgsForCall(0),
 	)
 	require.True(t, testMetricProvider.FakeCommitPrivateDataDuration.ObserveArgsForCall(0) > 0)
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", "testchannelid"},
 		testMetricProvider.FakePurgeDuration.WithArgsForCall(0),
 	)
 
 	purgeDuration := func() bool {
-		return testMetricProvider.FakePurgeDuration.ObserveArgsForCall(0) > 0
+		return testMetricProvider.FakePurgeDuration.ObserveCallCount() > 0 &&
+			testMetricProvider.FakePurgeDuration.ObserveArgsForCall(0) > 0
 	}
 	require.Eventually(t, purgeDuration, 2*time.Second, 100*time.Millisecond)
 }

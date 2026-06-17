@@ -12,6 +12,7 @@ import (
 
 	"github.com/hyperledger/fabric-lib-go/bccsp"
 	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
 	raftprotos "github.com/hyperledger/fabric-protos-go-apiv2/orderer/etcdraft"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/crypto/tlsgen"
@@ -43,6 +44,7 @@ var _ = Describe("Metadata Validation", func() {
 		err               error
 		cryptoProvider    bccsp.BCCSP
 		meta              *raftprotos.BlockMetadata
+		logger            *flogging.FabricLogger
 	)
 
 	BeforeEach(func() {
@@ -80,7 +82,8 @@ var _ = Describe("Metadata Validation", func() {
 	})
 
 	JustBeforeEach(func() {
-		c := newChain(10*time.Second, channelID, dataDir, 1, meta, consenters, cryptoProvider, support, nil)
+		logger = flogging.MustGetLogger("test")
+		c := newChain(10*time.Second, channelID, dataDir, 1, meta, consenters, cryptoProvider, support, nil, logger)
 		c.init()
 		chain = c.Chain
 		chain.ActiveNodes.Store([]uint64{1, 2, 3})
@@ -289,7 +292,8 @@ var _ = Describe("Metadata Validation", func() {
 
 			It("fails on addition of more than one consenter", func() {
 				newMetadata := proto.Clone(metadata).(*raftprotos.ConfigMetadata)
-				newMetadata.Consenters = append(newMetadata.Consenters,
+				newMetadata.Consenters = append(
+					newMetadata.Consenters,
 					&raftprotos.Consenter{
 						Host:          "host4",
 						Port:          10004,
@@ -359,7 +363,8 @@ var _ = Describe("Metadata Validation", func() {
 				Expect(err).NotTo(HaveOccurred())
 				newOrdererConfig.ConsensusMetadataReturns(newBytes)
 				Expect(chain.ValidateConsensusMetadata(oldOrdererConfig, newOrdererConfig, newChannel)).To(
-					MatchError("2 out of 3 nodes are alive, configuration will result in quorum loss"))
+					MatchError("2 out of 3 nodes are alive, configuration will result in quorum loss"),
+				)
 			})
 
 			When("node id starts from 2", func() {

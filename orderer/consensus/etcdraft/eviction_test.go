@@ -20,7 +20,7 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/raft/v3/raftpb"
+	"go.etcd.io/raft/v3/raftpb"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -213,7 +213,6 @@ func TestEvictionSuspector(t *testing.T) {
 			},
 		},
 	} {
-		testCase := testCase
 		t.Run(testCase.description, func(t *testing.T) {
 			committedBlocks := make(chan *common.Block, 2)
 

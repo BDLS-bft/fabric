@@ -19,7 +19,6 @@ import (
 // Comm is an object that enables to communicate with other peers
 // that also embed a CommModule.
 type Comm interface {
-
 	// GetPKIid returns this instance's PKI id
 	GetPKIid() common.PKIidType
 
@@ -106,7 +105,7 @@ func (ar AggregatedSendResult) String() string {
 	}
 
 	ackCount := ar.AckCount()
-	output := map[string]interface{}{}
+	output := map[string]any{}
 	if ackCount > 0 {
 		output["successes"] = ackCount
 	}

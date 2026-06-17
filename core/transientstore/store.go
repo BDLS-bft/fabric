@@ -8,6 +8,7 @@ package transientstore
 
 import (
 	"path/filepath"
+	"slices"
 
 	"github.com/hyperledger/fabric-lib-go/common/flogging"
 	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
@@ -156,11 +157,9 @@ func (provider *storeProvider) markStorageForDelete(ledgerID string) error {
 	}
 
 	// don't update if the storage is already marked for deletion.
-	for _, l := range marked.List {
-		if ledgerID == l {
-			logger.Infow("Transient storage was already marked for delete", "ledgerID", ledgerID)
-			return nil
-		}
+	if slices.Contains(marked.List, ledgerID) {
+		logger.Infow("Transient storage was already marked for delete", "ledgerID", ledgerID)
+		return nil
 	}
 
 	marked.List = append(marked.List, ledgerID)
@@ -314,7 +313,8 @@ func Drop(providerPath, ledgerID string) error {
 // Persist stores the private write set of a transaction along with the collection config
 // in the transient store based on txid and the block height the private data was received at
 func (s *Store) Persist(txid string, blockHeight uint64,
-	privateSimulationResultsWithConfig *transientstore.TxPvtReadWriteSetWithConfigInfo) error {
+	privateSimulationResultsWithConfig *transientstore.TxPvtReadWriteSetWithConfigInfo,
+) error {
 	logger.Debugf("Persisting private data to transient store for txid [%s] at block height [%d]", txid, blockHeight)
 
 	dbBatch := s.db.NewUpdateBatch()

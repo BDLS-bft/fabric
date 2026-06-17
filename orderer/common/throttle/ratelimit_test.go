@@ -38,7 +38,7 @@ func TestRateLimitSingleClient(t *testing.T) {
 
 	start := clock.Now()
 
-	for i := 0; i < transactions; i++ {
+	for range transactions {
 		rl.LimitRate("alice")
 	}
 	elapsed := clock.Since(start)
@@ -76,7 +76,7 @@ func TestRateLimitMultipleClients(t *testing.T) {
 
 	transactions := 10000
 
-	for clientID := 0; clientID < 10; clientID++ {
+	for clientID := range 10 {
 		client := fmt.Sprintf("client%d", clientID)
 		go func(client string) {
 			defer wg.Done()
@@ -124,7 +124,7 @@ func TestRateLimitSameClient(t *testing.T) {
 
 	transactions := 10000
 
-	for clientID := 0; clientID < 10; clientID++ {
+	for range 10 {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < transactions/10; i++ {
@@ -163,7 +163,7 @@ func TestRateLimitClientNumChange(t *testing.T) {
 	}
 	defer rl.Stop()
 
-	t.Run("", func(t *testing.T) {
+	t.Run("client", func(t *testing.T) {
 		start := time.Now()
 
 		var wg sync.WaitGroup
@@ -171,7 +171,7 @@ func TestRateLimitClientNumChange(t *testing.T) {
 
 		transactions := 5000
 
-		for clientID := 0; clientID < 10; clientID++ {
+		for clientID := range 10 {
 			client := fmt.Sprintf("client%d", clientID)
 			go func(client string) {
 				defer wg.Done()
@@ -199,12 +199,12 @@ func TestRateLimitClientNumChange(t *testing.T) {
 	// should have all the quota available to itself.
 	clock.Sleep(time.Second * 2)
 
-	t.Run("", func(t *testing.T) {
+	t.Run("alice", func(t *testing.T) {
 		transactions := 10000
 
 		start := clock.Now()
 
-		for i := 0; i < transactions; i++ {
+		for range transactions {
 			rl.LimitRate("alice")
 		}
 		elapsed := clock.Since(start)

@@ -171,7 +171,7 @@ func (s *BFTSynchronizer) computeTargetHeight(heights []uint64) uint64 {
 	s.Logger.Debugf("Cluster size: %d, F: %d, Heights: %v", clusterSize, f, heights)
 
 	if lenH < f+1 {
-		s.Logger.Debugf("Returning %d", heights[0])
+		s.Logger.Debugf("Returning %d", heights[int(lenH)-1])
 		return heights[int(lenH)-1]
 	}
 	s.Logger.Debugf("Returning %d", heights[f])
@@ -207,7 +207,7 @@ func (s *BFTSynchronizer) createBFTDeliverer(startHeight uint64, myEndpoint stri
 	// The maximal duration of a Sync. After this time Sync returns with whatever it had pulled until that point.
 	maxRetryDuration := s.LocalConfigCluster.ReplicationPullTimeout * time.Duration(s.LocalConfigCluster.ReplicationMaxRetries)
 	// If a remote orderer does not deliver blocks for this amount of time, even though it can do so, it is replaced as the block deliverer.
-	blockCesorshipTimeOut := maxRetryDuration / 3
+	blockCensorshipTimeOut := maxRetryDuration / 3
 
 	bftDeliverer := s.BFTDelivererFactory.CreateBFTDeliverer(
 		s.Support.ChannelID(),
@@ -224,7 +224,7 @@ func (s *BFTSynchronizer) createBFTDeliverer(startHeight uint64, myEndpoint stri
 		flogging.MustGetLogger("orderer.blocksprovider").With("channel", s.Support.ChannelID()),
 		minRetryInterval,
 		maxRetryInterval,
-		blockCesorshipTimeOut,
+		blockCensorshipTimeOut,
 		maxRetryDuration,
 		func() (stopRetries bool) {
 			s.syncBuff.Stop()

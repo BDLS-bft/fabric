@@ -9,6 +9,7 @@ package util
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/base32"
 	"fmt"
 	"io"
@@ -17,16 +18,17 @@ import (
 	"strings"
 	"testing"
 
-	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric/common/metadata"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/config/configtest"
+	dcli "github.com/moby/moby/client"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/mod/semver"
 )
 
 func TestDockerBuild(t *testing.T) {
-	client, err := docker.NewClientFromEnv()
+	client, err := dcli.New(dcli.FromEnv)
 	require.NoError(t, err, "failed to get docker client")
 
 	is := bytes.NewBuffer(nil)
@@ -57,13 +59,16 @@ func TestDockerBuild(t *testing.T) {
 	tw.Close()
 
 	imageName := uniqueName()
-	err = client.BuildImage(docker.BuildImageOptions{
-		Name:         imageName,
-		InputStream:  is,
-		OutputStream: io.Discard,
+	res, err := client.ImageBuild(context.Background(), is, dcli.ImageBuildOptions{
+		Tags: []string{imageName},
 	})
 	require.NoError(t, err, "failed to build base image")
-	defer client.RemoveImageExtended(imageName, docker.RemoveImageOptions{Force: true})
+	defer res.Body.Close()
+	defer client.ImageRemove(context.Background(), imageName, dcli.ImageRemoveOptions{
+		Force: true,
+	})
+
+	io.Copy(io.Discard, res.Body)
 
 	codepackage := bytes.NewBuffer(nil)
 	tw = tar.NewWriter(codepackage)
@@ -150,4 +155,19 @@ func TestDockerBuildOptions(t *testing.T) {
 	actualBuildOptionsString := buildOptions.String()
 	expectedBuildOptionsString := "Image=imageName Env=[ENV_VARIABLE] Cmd=theCommand)"
 	require.Equal(t, expectedBuildOptionsString, actualBuildOptionsString, `Expected "%s", got "%s"`, expectedBuildOptionsString, actualBuildOptionsString)
+}
+
+func TestParamsImage(t *testing.T) {
+	client, err := dcli.New(dcli.FromEnv)
+	require.NoError(t, err, "failed to get docker client")
+
+	goVersion, osVer, arch, err := ParamsImage(client)
+	require.NoError(t, err, "failed to get docker image")
+	require.True(t, semver.IsValid(goVersion))
+	if osVer != "linux" {
+		require.Fail(t, "os is invalid")
+	}
+	if arch != "arm64" && arch != "amd64" {
+		require.Fail(t, "arch is invalid")
+	}
 }

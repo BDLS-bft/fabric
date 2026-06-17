@@ -160,7 +160,8 @@ func TestWriteConfigBlock(t *testing.T) {
 						},
 					},
 				}, nil)
-			})
+			},
+		)
 
 		require.True(t, didPanic)
 		require.Contains(t, pMsg, "Told to write a config block, but configtx payload is invalid: error unmarshalling Payload: proto:")
@@ -196,7 +197,8 @@ func TestWriteConfigBlock(t *testing.T) {
 						},
 					},
 				}, nil)
-			})
+			},
+		)
 
 		require.True(t, didPanic)
 		require.Contains(t, pMsg, "Told to write a config block with an invalid channel header: error unmarshalling ChannelHeader: proto:")
@@ -524,7 +526,7 @@ func testLastConfigBlockNumber(t *testing.T, block *cb.Block, expectedBlockNumbe
 	require.Equal(t, expectedBlockNumber, lastConfig.Index, "LAST_CONFIG value should point to last config block")
 }
 
-func testPanic(f func()) (didPanic bool, message interface{}) {
+func testPanic(f func()) (didPanic bool, message any) {
 	didPanic = true
 
 	defer func() {

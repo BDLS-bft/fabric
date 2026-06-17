@@ -86,7 +86,8 @@ type puller struct {
 
 // NewPuller creates new private data puller
 func NewPuller(metrics *metrics.PrivdataMetrics, cs privdata.CollectionStore, g gossip,
-	dataRetriever PrivateDataRetriever, factory CollectionAccessFactory, channel string, btlPullMargin uint64) *puller {
+	dataRetriever PrivateDataRetriever, factory CollectionAccessFactory, channel string, btlPullMargin uint64,
+) *puller {
 	p := &puller{
 		logger:                  logger.With("channel", channel),
 		metrics:                 metrics,
@@ -99,7 +100,7 @@ func NewPuller(metrics *metrics.PrivdataMetrics, cs privdata.CollectionStore, g 
 		PrivateDataRetriever:    dataRetriever,
 		CollectionAccessFactory: factory,
 	}
-	_, p.msgChan = p.Accept(func(o interface{}) bool {
+	_, p.msgChan = p.Accept(func(o any) bool {
 		msg := o.(protoext.ReceivedMessage).GetGossipMessage()
 		if !bytes.Equal(msg.Channel, []byte(p.channel)) {
 			return false

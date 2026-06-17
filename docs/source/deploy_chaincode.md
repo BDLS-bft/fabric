@@ -140,7 +140,7 @@ func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface,
 
 ```
 
-You can learn more about the Go contract API by visiting the [API documentation](https://github.com/hyperledger/fabric-contract-api-go) and the [smart contract processing topic](developapps/smartcontract.html).
+You can learn more about the Go contract API by visiting the [API documentation](https://github.com/hyperledger/fabric-contract-api-go) and the [smart contract processing topic](smartcontract/smartcontract.html).
 
 To install the smart contract dependencies, run the following command from the `asset-transfer-basic/chaincode-go` directory.
 
@@ -229,7 +229,7 @@ async CreateAsset(ctx, id, color, size, owner, appraisedValue) {
     }
 ```
 
-You can learn more about the JavaScript contract API by visiting the [API documentation](https://hyperledger.github.io/fabric-chaincode-node/{BRANCH}/api/) and the [smart contract processing topic](developapps/smartcontract.html).
+You can learn more about the JavaScript contract API by visiting the [API documentation](https://hyperledger.github.io/fabric-chaincode-node/{BRANCH}/api/).
 
 To install the smart contract dependencies, run the following command from the `asset-transfer-basic/chaincode-javascript` directory.
 
@@ -319,7 +319,7 @@ The `AssetTransfer` class provides the transaction context for the functions def
 
 ```
 
-You can learn more about the JavaScript contract API by visiting the [API documentation](https://hyperledger.github.io/fabric-chaincode-node/{BRANCH}/api/) and the [smart contract processing topic](developapps/smartcontract.html).
+You can learn more about the JavaScript contract API by visiting the [API documentation](https://hyperledger.github.io/fabric-chaincode-node/{BRANCH}/api/).
 
 To install the smart contract dependencies, run the following command from the `asset-transfer-basic/chaincode-typescript` directory.
 

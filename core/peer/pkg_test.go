@@ -104,7 +104,8 @@ func createMSPConfig(mspID string, rootCerts, tlsRootCerts, tlsIntermediateCerts
 }
 
 func createConfigBlock(channelID string, appMSPConf, ordererMSPConf *mspproto.MSPConfig,
-	appOrgID, ordererOrgID string) (*cb.Block, error) {
+	appOrgID, ordererOrgID string,
+) (*cb.Block, error) {
 	block, err := configtxtest.MakeGenesisBlockFromMSPs(channelID, appMSPConf, ordererMSPConf, appOrgID, ordererOrgID)
 	if block == nil || err != nil {
 		return block, err
@@ -257,7 +258,6 @@ func TestUpdateRootsFromConfigBlock(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			server, err := comm.NewGRPCServer("localhost:0", test.serverConfig)
 			require.NoError(t, err, "failed to create gRPC server")

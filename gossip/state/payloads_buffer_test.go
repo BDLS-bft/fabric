@@ -47,8 +47,8 @@ func TestPayloadsBufferImpl_Push(t *testing.T) {
 		t.Fatal("Wasn't able to generate random payload for test")
 	}
 
-	t.Log("Pushing new payload into buffer")
-	buffer.Push(payload)
+	t.Log("Pushing old payload into buffer (should return false)")
+	require.False(t, buffer.Push(payload))
 
 	// Payloads with sequence number less than buffer top
 	// index should not be accepted
@@ -64,8 +64,8 @@ func TestPayloadsBufferImpl_Push(t *testing.T) {
 		t.Fatal("Wasn't able to generate random payload for test")
 	}
 
-	t.Log("Pushing new payload into buffer")
-	buffer.Push(payload)
+	t.Log("Pushing valid payload into buffer (should return true)")
+	require.True(t, buffer.Push(payload))
 	t.Log("Getting next block sequence number")
 	require.Equal(t, buffer.Next(), uint64(5))
 	t.Log("Check block buffer size")
@@ -121,15 +121,13 @@ func TestPayloadsBufferImpl_ConcurrentPush(t *testing.T) {
 
 	ready := int32(0)
 	readyWG := sync.WaitGroup{}
-	readyWG.Add(1)
-	go func() {
+	readyWG.Go(func() {
 		// Wait for next expected block to arrive
 		<-buffer.Ready()
 		atomic.AddInt32(&ready, 1)
-		readyWG.Done()
-	}()
+	})
 
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		go func() {
 			buffer.Push(payload)
 			startWG.Wait()
@@ -143,6 +141,9 @@ func TestPayloadsBufferImpl_ConcurrentPush(t *testing.T) {
 	require.Equal(t, int32(1), atomic.LoadInt32(&ready))
 	// Buffer size has to be only one
 	require.Equal(t, 1, buffer.Size())
+
+	// Check that we can't push it again
+	require.False(t, buffer.Push(payload))
 }
 
 // Tests the scenario where payload pushes and pops are interleaved after a Ready() signal.

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -615,7 +616,7 @@ func createAttachmentPart(couchDoc *couchDoc) (bytes.Buffer, string, error) {
 		fileAttachments[attachment.Name] = fileDetails{true, attachment.ContentType, len(attachment.AttachmentBytes)}
 	}
 
-	attachmentJSONMap := map[string]interface{}{
+	attachmentJSONMap := map[string]any{
 		"_attachments": fileAttachments,
 	}
 
@@ -623,7 +624,7 @@ func createAttachmentPart(couchDoc *couchDoc) (bytes.Buffer, string, error) {
 	if couchDoc.jsonValue != nil {
 
 		// create a generic map
-		genericMap := make(map[string]interface{})
+		genericMap := make(map[string]any)
 
 		// unmarshal the data into the generic map
 		decoder := json.NewDecoder(bytes.NewBuffer(couchDoc.jsonValue))
@@ -634,9 +635,7 @@ func createAttachmentPart(couchDoc *couchDoc) (bytes.Buffer, string, error) {
 		}
 
 		// add all key/values to the attachmentJSONMap
-		for jsonKey, jsonValue := range genericMap {
-			attachmentJSONMap[jsonKey] = jsonValue
-		}
+		maps.Copy(attachmentJSONMap, genericMap)
 
 	}
 
@@ -1331,7 +1330,7 @@ func (dbclient *couchDatabase) batchRetrieveDocumentMetadata(keys []string) ([]*
 	// we could set include_docs to false to optimize the response.
 	queryParms.Add("include_docs", "true")
 
-	keymap := make(map[string]interface{})
+	keymap := make(map[string]any)
 
 	keymap["keys"] = keys
 
@@ -1416,14 +1415,14 @@ func (dbclient *couchDatabase) batchUpdateDocuments(documents []*couchDoc) ([]*b
 		return nil, errors.Wrapf(err, "error parsing CouchDB URL: %s", dbclient.couchInstance.url())
 	}
 
-	documentMap := make(map[string]interface{})
+	documentMap := make(map[string]any)
 
-	var jsonDocumentMap []interface{}
+	var jsonDocumentMap []any
 
 	for _, jsonDocument := range documents {
 
 		// create a document map
-		document := make(map[string]interface{})
+		document := make(map[string]any)
 
 		// unmarshal the JSON component of the couchDoc into the document
 		err = json.Unmarshal(jsonDocument.jsonValue, &document)
@@ -1435,7 +1434,7 @@ func (dbclient *couchDatabase) batchUpdateDocuments(documents []*couchDoc) ([]*b
 		if len(jsonDocument.attachments) > 0 {
 
 			// create a file attachment map
-			fileAttachment := make(map[string]interface{})
+			fileAttachment := make(map[string]any)
 
 			// for each attachment, create a base64Attachment, name the attachment,
 			// add the content type and base64 encode the attachment
@@ -1501,7 +1500,8 @@ func (dbclient *couchDatabase) batchUpdateDocuments(documents []*couchDoc) ([]*b
 // which may be detected during saves or deletes that timed out from client http perspective,
 // but which eventually succeeded in couchdb
 func (dbclient *couchDatabase) handleRequestWithRevisionRetry(id, method, dbName, functionName string, connectURL *url.URL, data []byte, rev string,
-	multipartBoundary string, maxRetries int, keepConnectionOpen bool, queryParms *url.Values) (*http.Response, *dbReturn, error) {
+	multipartBoundary string, maxRetries int, keepConnectionOpen bool, queryParms *url.Values,
+) (*http.Response, *dbReturn, error) {
 	// Initialize a flag for the revision conflict
 	revisionConflictDetected := false
 	var resp *http.Response
@@ -1538,8 +1538,10 @@ func (dbclient *couchDatabase) handleRequestWithRevisionRetry(id, method, dbName
 }
 
 func (dbclient *couchDatabase) handleRequest(method, functionName string, connectURL *url.URL, data []byte, rev, multipartBoundary string,
-	maxRetries int, keepConnectionOpen bool, queryParms *url.Values, pathElements ...string) (*http.Response, *dbReturn, error) {
-	return dbclient.couchInstance.handleRequest(context.Background(),
+	maxRetries int, keepConnectionOpen bool, queryParms *url.Values, pathElements ...string,
+) (*http.Response, *dbReturn, error) {
+	return dbclient.couchInstance.handleRequest(
+		context.Background(),
 		method, dbclient.dbName, functionName, connectURL, data, rev, multipartBoundary,
 		maxRetries, keepConnectionOpen, queryParms, pathElements...,
 	)
@@ -1550,7 +1552,8 @@ func (dbclient *couchDatabase) handleRequest(method, functionName string, connec
 // callee's responsibility to close response correctly.
 // Any http error or CouchDB error (4XX or 500) will result in a golang error getting returned
 func (couchInstance *couchInstance) handleRequest(ctx context.Context, method, dbName, functionName string, connectURL *url.URL, data []byte, rev string,
-	multipartBoundary string, maxRetries int, keepConnectionOpen bool, queryParms *url.Values, pathElements ...string) (*http.Response, *dbReturn, error) {
+	multipartBoundary string, maxRetries int, keepConnectionOpen bool, queryParms *url.Values, pathElements ...string,
+) (*http.Response, *dbReturn, error) {
 	couchdbLogger.Debugf("Entering handleRequest()  method=%s  url=%v  dbName=%s", method, connectURL, dbName)
 
 	// create the return objects for couchDB
@@ -1758,7 +1761,7 @@ func invalidCouchDBReturn(resp *http.Response, errResp error) bool {
 
 // isJSON tests a string to determine if a valid JSON
 func isJSON(s string) bool {
-	var js map[string]interface{}
+	var js map[string]any
 	return json.Unmarshal([]byte(s), &js) == nil
 }
 

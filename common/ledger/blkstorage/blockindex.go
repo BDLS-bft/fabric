@@ -361,11 +361,14 @@ func (index *blockIndex) exportUniqueTxIDs(dir string, newHashFunc snapshot.NewH
 func importTxIDsFromSnapshot(
 	snapshotDir string,
 	lastBlockNumInSnapshot uint64,
-	db *leveldbhelper.DBHandle) error {
+	db *leveldbhelper.DBHandle,
+) error {
 	txIDsMetadata, err := snapshot.OpenFile(filepath.Join(snapshotDir, snapshotMetadataFileName), snapshotFileFormat)
 	if err != nil {
 		return err
 	}
+	defer txIDsMetadata.Close()
+
 	numTxIDs, err := txIDsMetadata.DecodeUVarInt()
 	if err != nil {
 		return err
@@ -374,9 +377,10 @@ func importTxIDsFromSnapshot(
 	if err != nil {
 		return err
 	}
+	defer txIDsData.Close()
 
 	batch := db.NewUpdateBatch()
-	for i := uint64(0); i < numTxIDs; i++ {
+	for i := range numTxIDs {
 		txID, err := txIDsData.DecodeString()
 		if err != nil {
 			return err

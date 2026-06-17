@@ -21,8 +21,8 @@ _arg_comp=('' )
 
 # if version not passed in, default to latest released version
 # if ca version not passed in, default to latest released version
-_arg_fabric_version="2.5.12"
-_arg_ca_version="1.5.15"
+_arg_fabric_version="2.5.15"
+_arg_ca_version="1.5.17"
 
 OS=$(uname -s|tr '[:upper:]' '[:lower:]'|sed 's/mingw64_nt.*/windows/')
 ARCH=$(uname -m | sed 's/x86_64/amd64/g' | sed 's/aarch64/arm64/g')
@@ -56,8 +56,8 @@ print_help()
 {
 	printf 'Usage: %s [-f|--fabric-version <arg>] [-c|--ca-version <arg>] <comp-1> [<comp-2>] ... [<comp-n>] ...\n' "$0"
 	printf '\t%s\n' "<comp> Component to install, one or more of  docker | binary | samples | podman  First letter of component also accepted; If none specified docker | binary | samples is assumed"
-	printf '\t%s\n' "-f, --fabric-version: FabricVersion (default: '2.5.12')"
-	printf '\t%s\n' "-c, --ca-version: Fabric CA Version (default: '1.5.15')"
+	printf '\t%s\n' "-f, --fabric-version: FabricVersion (default: '2.5.15')"
+	printf '\t%s\n' "-c, --ca-version: Fabric CA Version (default: '1.5.17')"
 }
 
 
@@ -252,7 +252,7 @@ download() {
        DEST_DIR="fabric-samples"
     fi
     echo "===> Will unpack to: ${DEST_DIR}"
-    curl -L --retry 5 --retry-delay 3 "${URL}" | tar xz -C ${DEST_DIR}|| rc=$?
+    curl -L --retry 5 --retry-delay 3 "${URL}" | tar xz -C "${DEST_DIR}"|| rc=$?
     if [ -n "$rc" ]; then
         echo "==> There was an error downloading the binary file."
         return 22

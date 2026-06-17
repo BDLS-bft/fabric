@@ -37,7 +37,7 @@ func TestImplicitMarshalError(t *testing.T) {
 func makeManagers(count, passing int) map[string]*ManagerImpl {
 	result := make(map[string]*ManagerImpl)
 	remaining := passing
-	for i := 0; i < count; i++ {
+	for i := range count {
 		policyMap := make(map[string]Policy)
 		if remaining > 0 {
 			policyMap[TestPolicyName] = acceptPolicy{}
@@ -51,7 +51,7 @@ func makeManagers(count, passing int) map[string]*ManagerImpl {
 	return result
 }
 
-// makePolicyTest creates an implicitMetaPolicy with a set of
+// runPolicyTest runs a policy test with the given rule, manager count, and passing count
 func runPolicyTest(t *testing.T, rule cb.ImplicitMetaPolicy_Rule, managerCount int, passingCount int) error {
 	imp, err := NewImplicitMetaPolicy(protoutil.MarshalOrPanic(&cb.ImplicitMetaPolicy{
 		Rule:      rule,

@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
 	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	ordererProtos "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
@@ -24,6 +23,7 @@ import (
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	"github.com/hyperledger/fabric/integration/ordererclient"
 	"github.com/hyperledger/fabric/internal/pkg/comm"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -57,7 +57,7 @@ func extractLedger(network *nwo.Network, orderer *nwo.Orderer, channelId string)
 var _ = Describe("Smart BFT Block Deliverer", func() {
 	var (
 		testDir          string
-		client           *docker.Client
+		client           dcli.APIClient
 		network          *nwo.Network
 		_                ifrit.Process
 		ordererProcesses []ifrit.Process
@@ -67,7 +67,6 @@ var _ = Describe("Smart BFT Block Deliverer", func() {
 		ordererRunners   []*ginkgomon.Runner
 		allStreams       []ordererProtos.AtomicBroadcast_BroadcastClient
 		channel          string
-		peer             *nwo.Peer
 	)
 
 	BeforeEach(func() {
@@ -75,7 +74,6 @@ var _ = Describe("Smart BFT Block Deliverer", func() {
 		peerProcesses = nil
 		mocksArray = nil
 		ledgerArray = nil
-		peer = nil
 		ordererRunners = nil
 		allStreams = nil
 		var err error
@@ -83,7 +81,7 @@ var _ = Describe("Smart BFT Block Deliverer", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		/* Create a client*/
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 
 		Expect(err).NotTo(HaveOccurred())
 
@@ -98,7 +96,8 @@ var _ = Describe("Smart BFT Block Deliverer", func() {
 		network.Bootstrap()
 
 		for _, orderer := range network.Orderers {
-			runner := network.OrdererRunner(orderer,
+			runner := network.OrdererRunner(
+				orderer,
 				"FABRIC_LOGGING_SPEC=debug",
 				"ORDERER_GENERAL_BACKOFF_MAXDELAY=20s",
 			)
@@ -115,8 +114,6 @@ var _ = Describe("Smart BFT Block Deliverer", func() {
 		Eventually(ordererRunners[2].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 1"))
 		Eventually(ordererRunners[3].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 1"))
 
-		peer = network.Peers[0]
-
 		/* Create a stream with client for each orderer*/
 		for _, o := range network.Orderers {
 			conn := network.OrdererClientConn(o)
@@ -128,7 +125,7 @@ var _ = Describe("Smart BFT Block Deliverer", func() {
 		/* Fill the ledger with blocks */
 		By("Filling ledger with blocks")
 
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			buff := make([]byte, 8)
 			binary.BigEndian.PutUint64(buff, uint64(i))
 
@@ -140,7 +137,7 @@ var _ = Describe("Smart BFT Block Deliverer", func() {
 				Expect(err).NotTo(HaveOccurred())
 			}
 		}
-		assertBlockReception(map[string]int{channel: 10}, network.Orderers, peer, network)
+		assertBlockReception(map[string]int{channel: 10}, network.Orderers, network)
 	})
 
 	AfterEach(func() {
@@ -299,7 +296,7 @@ var _ = Describe("Smart BFT Block Deliverer", func() {
 		Eventually(o4Proc.Wait(), network.EventuallyTimeout).Should(Receive())
 
 		By("Send 10 more blocks in network")
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			buff := make([]byte, 8)
 			binary.BigEndian.PutUint64(buff, uint64(i))
 
@@ -314,7 +311,7 @@ var _ = Describe("Smart BFT Block Deliverer", func() {
 				Expect(err).NotTo(HaveOccurred())
 			}
 		}
-		assertBlockReception(map[string]int{channel: 20}, network.Orderers[:3], peer, network)
+		assertBlockReception(map[string]int{channel: 20}, network.Orderers[:3], network)
 
 		By("Stop the rest of the orderers")
 		for i, proc := range ordererProcesses {
@@ -386,7 +383,7 @@ var _ = Describe("Smart BFT Block Deliverer", func() {
 		Eventually(o4Runner.Err(), network.EventuallyTimeout).Should(gbytes.Say("Block censorship detected"))
 
 		By("Assert all block are received")
-		assertBlockReception(map[string]int{channel: 20}, []*nwo.Orderer{network.Orderers[3]}, peer, network)
+		assertBlockReception(map[string]int{channel: 20}, []*nwo.Orderer{network.Orderers[3]}, network)
 
 		close(censoringOrderer.StopDeliveryChannel)
 	})
