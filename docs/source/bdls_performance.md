@@ -29,11 +29,17 @@ Useful knobs:
 * `-bdls.bench.max-message-count=500`
 * `-bdls.bench.absolute-max-bytes-mb=10`
 * `-bdls.bench.preferred-max-bytes-kb=512`
+* `-bdls.bench.concurrency=1`
 * `-bdls.bench.payload-bytes=64`
 * `-bdls.bench.latency=100ms`
 * `-bdls.bench.delta0`, `-bdls.bench.delta1`,
   `-bdls.bench.delta-prime1`, `-bdls.bench.delta2`, and
   `-bdls.bench.delta3`
+
+`bdls.bench.concurrency` controls how many invoke commands run in parallel. The
+default (`1`) matches the previous sequential behavior. Increasing concurrency
+allows the orderers to batch and commit concurrently, which is closer to a real
+throughput workload.
 
 ## Local baseline
 
@@ -58,6 +64,10 @@ batch settings unless noted, single benchmark iteration (`-benchtime=1x`).
 * In the local smoke runs, SmartBFT submitted transactions faster than BDLS and
   etcdraft. BDLS was slower than etcdraft in the single-transaction smoke
   workload.
+* The previous one-transaction-at-a-time measurement can understate throughput
+  because it serializes CLI invocation and event confirmation.
+* For fair cross-consensus comparison, use a fixed concurrency value and report
+  variance across multiple benchmark runs.
 * The 64-byte response payload did not materially change BDLS throughput in this
   small sample.
 * Setting `-bdls.bench.latency=100ms` produced a similar result to the default

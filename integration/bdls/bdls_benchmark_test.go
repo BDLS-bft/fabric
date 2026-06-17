@@ -7,12 +7,14 @@ SPDX-License-Identifier: Apache-2.0
 package bdls
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -23,7 +25,6 @@ import (
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	dcli "github.com/moby/moby/client"
 	"github.com/onsi/gomega"
-	"github.com/onsi/gomega/gbytes"
 	"github.com/onsi/gomega/gexec"
 	"github.com/tedsuo/ifrit"
 	"github.com/tedsuo/ifrit/grouper"
@@ -43,6 +44,7 @@ var (
 	benchBDLSDelta2          = flag.Duration("bdls.bench.delta2", 0, "BDLS delta2 timeout; 0 uses the BDLS library default")
 	benchBDLSDelta3          = flag.Duration("bdls.bench.delta3", 0, "BDLS delta3 timeout; 0 uses the BDLS library default")
 	benchBDLSLatency         = flag.Duration("bdls.bench.latency", 0, "BDLS base latency; 0 uses the BDLS library default")
+	benchBDLSConcurrency     = flag.Int("bdls.bench.concurrency", 1, "Number of concurrent benchmark invocations")
 )
 
 func BenchmarkOrderingThroughput(b *testing.B) {
@@ -120,20 +122,75 @@ func runOrderingBenchmark(b *testing.B, consensusType string) {
 		{"bdls_delta2_ms", float64(benchBDLSDelta2.Milliseconds())},
 		{"bdls_delta3_ms", float64(benchBDLSDelta3.Milliseconds())},
 		{"bdls_latency_ms", float64(benchBDLSLatency.Milliseconds())},
+		{"concurrency", float64(*benchBDLSConcurrency)},
 	} {
 		b.ReportMetric(metric.value, metric.name)
 	}
 
 	b.ResetTimer()
 	started := time.Now()
-	for i := 0; i < b.N; i++ {
-		benchmarkInvoke(b, network, peer, network.Orderers[i%len(network.Orderers)], channel)
+	if *benchBDLSConcurrency <= 1 {
+		for i := 0; i < b.N; i++ {
+			err := benchmarkInvoke(network, peer, network.Orderers[i%len(network.Orderers)], channel)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	} else {
+		runConcurrentOrderingBenchmark(b, network, peer, network.Orderers, channel)
 	}
 	elapsed := time.Since(started)
 	b.StopTimer()
 
 	if elapsed > 0 {
 		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "tx/s")
+	}
+}
+
+func runConcurrentOrderingBenchmark(b *testing.B, network *nwo.Network, peer *nwo.Peer, orderers []*nwo.Orderer, channel string) {
+	b.Helper()
+
+	if len(orderers) == 0 {
+		b.Fatal("no orderers available")
+	}
+
+	workerCount := *benchBDLSConcurrency
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	if workerCount > b.N {
+		workerCount = b.N
+	}
+
+	jobs := make(chan int, workerCount)
+	errs := make(chan error, b.N)
+	var wg sync.WaitGroup
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for txID := range jobs {
+				err := benchmarkInvoke(network, peer, orderers[txID%len(orderers)], channel)
+				if err != nil {
+					errs <- fmt.Errorf("worker %d: %w", workerID, err)
+				}
+			}
+		}(i)
+	}
+
+	for i := 0; i < b.N; i++ {
+		jobs <- i
+	}
+	close(jobs)
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -303,8 +360,7 @@ func deployBenchmarkChaincode(network *nwo.Network, channel string, testDir stri
 	})
 }
 
-func benchmarkInvoke(b *testing.B, network *nwo.Network, peer *nwo.Peer, orderer *nwo.Orderer, channel string) {
-	b.Helper()
+func benchmarkInvoke(network *nwo.Network, peer *nwo.Peer, orderer *nwo.Orderer, channel string) error {
 	sess, err := network.PeerUserSession(peer, "User1", commands.ChaincodeInvoke{
 		ChannelID: channel,
 		Orderer:   network.OrdererAddress(orderer, nwo.ListenPort),
@@ -317,10 +373,18 @@ func benchmarkInvoke(b *testing.B, network *nwo.Network, peer *nwo.Peer, orderer
 		WaitForEvent: true,
 	})
 	if err != nil {
-		b.Fatalf("create invoke session: %v", err)
+		return err
 	}
-	gomega.Eventually(sess, 2*time.Minute).Should(gexec.Exit(0))
-	gomega.Expect(sess.Err).To(gbytes.Say("Chaincode invoke successful. result: status:200"))
+
+	sess.Wait(2 * time.Minute)
+	if sess.ExitCode() != 0 {
+		return fmt.Errorf("chaincode invoke failed with exit code %d", sess.ExitCode())
+	}
+	if !bytes.Contains(sess.Err.Contents(), []byte("Chaincode invoke successful. result: status:200")) {
+		return fmt.Errorf("chaincode invoke missing success output")
+	}
+
+	return nil
 }
 
 func benchmarkCtor(payloadBytes int) string {
