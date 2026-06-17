@@ -31,6 +31,8 @@ General:
     ClientPrivateKey: {{ $w.OrdererLocalTLSDir Orderer }}/server.key
     ServerCertificate: {{ $w.OrdererLocalTLSDir Orderer }}/server.crt
     ServerPrivateKey: {{ $w.OrdererLocalTLSDir Orderer }}/server.key
+    RootCAs:
+    - {{ $w.OrdererLocalTLSDir Orderer }}/ca.crt
     ReplicationPolicy: {{ .OrdererReplicationPolicy }}
     DialTimeout: 5s
     RPCTimeout: 7s

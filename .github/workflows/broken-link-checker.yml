@@ -27,7 +27,7 @@ jobs:
           --header="User-Agent: curl/8.7.1" \
           --header="Accept: */*" \
           --rate-limit=1 \
-          --accepted-status-codes="200..300,403" \
+          --accepted-status-codes="200..300,403,429" \
           --ignore-fragments \
           --skip-tls-verification \
           --max-connections-per-host=1 \
@@ -57,7 +57,7 @@ jobs:
           --header="User-Agent: curl/8.7.1" \
           --header="Accept: */*" \
           --rate-limit=1 \
-          --accepted-status-codes="200..300,403" \
+          --accepted-status-codes="200..300,403,429" \
           --ignore-fragments \
           --skip-tls-verification \
           --max-connections-per-host=1 \

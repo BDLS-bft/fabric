@@ -1,0 +1,77 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+syntax = "proto3";
+
+package orderer.bdls;
+
+option go_package = "github.com/hyperledger/fabric/orderer/consensus/bdls/protos;bdlsproto";
+
+// ConfigMetadata is the channel-level configuration of the BDLS consenter.
+// It is stored in ConsensusType.Metadata on a config block and parsed by
+// HandleChain when constructing a Chain for the channel. Shape is kept
+// deliberately close to etcdraft.ConfigMetadata so existing operator
+// tooling (configtxgen templates, admin-api pacers) can lift the patterns
+// they already use.
+message ConfigMetadata {
+  // Consenters in this channel's BDLS consensus group. Order is NOT
+  // significant — the run-time BDLS participant id is derived from the
+  // PEM-decoded server cert public key, not from position in this list.
+  repeated Consenter consenters = 1;
+
+  // Tunables for the consensus state machine. Zero means "use library
+  // default" for every field.
+  Options options = 2;
+}
+
+// Consenter carries the network identity of a single BDLS participant.
+// Mirrors orderer.smartbft.Consenter so cluster-side TLS bootstrapping
+// and Fabric's channelconfig.Consenters() stay consistent.
+message Consenter {
+  // GRPC host used by the cluster transport.
+  string host = 1;
+  // GRPC port used by the cluster transport.
+  uint32 port = 2;
+  // Server (TLS) certificate in PEM. The secp256k1 / P-256 public key
+  // extracted from this cert is what BDLS uses to identify the peer.
+  bytes server_tls_cert = 3;
+  // Client (TLS) certificate in PEM, used when this orderer dials others.
+  bytes client_tls_cert = 4;
+  // MSP identity bytes — carried here for parity with smartbft's
+  // Consenter; not used by the BDLS state machine itself.
+  bytes identity = 5;
+}
+
+// Options carries the paper's Δ timeouts (Section 8.2) plus batch-cutter
+// parameters. All durations are milliseconds; zero means "library default".
+message Options {
+  // Δ₀ — round-change stage timeout.
+  int64 delta0_ms = 1;
+  // Δ₁ — lock stage timeout for non-leader.
+  int64 delta1_ms = 2;
+  // Δ'₁ — lock stage timeout for leader.
+  int64 delta_prime1_ms = 3;
+  // Δ₂ — commit stage timeout.
+  int64 delta2_ms = 4;
+  // Δ₃ — lock-release stage timeout.
+  int64 delta3_ms = 5;
+
+  // Base network latency used by BDLS.SetLatency. The Δ* knobs above
+  // override the per-stage derivation from this value; it is still used
+  // as a lower bound for run-loop scheduling.
+  int64 latency_ms = 6;
+
+  // Batching knobs, following the etcdraft / smartbft convention.
+  uint64 request_batch_max_count = 7;
+  uint64 request_batch_max_bytes_size = 8;
+  int64 request_batch_max_interval_ms = 9;
+
+  // When true the BDLS library will only advance past a decided height
+  // after 2t+1 distinct participants have re-broadcast the <decide>,
+  // closing the Section-9 fork window. Defaults to true for new channels
+  // — the legacy single-flood path exists only for backwards compat.
+  bool reliable_decide = 10;
+}

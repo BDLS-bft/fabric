@@ -608,6 +608,50 @@ Profiles:
               Type: Signature
               Rule: "OR('SampleOrg.member')"
 
+  # SampleAppChannelBDLS defines an application channel configuration that
+  # uses the BDLS (Blockchain DLS) orderer. BDLS reuses the BFT
+  # ConsenterMapping / OrdererDefaults shape — both consenters identify
+  # members by TLS cert public key, so a BDLS network can be generated
+  # from the same YAML that a BFT network would use, just with
+  # OrdererType flipped. BDLS Δ knobs can be supplied with an optional
+  # BDLS block under Orderer; when omitted they take library defaults.
+  SampleAppChannelBDLS:
+    <<: *ChannelDefaults
+    Consortium: SampleConsortium
+    Orderer:
+      <<: *OrdererDefaults
+      OrdererType: BDLS
+      BatchSize:
+        MaxMessageCount: 5000
+        AbsoluteMaxBytes: 10 MB
+      # BDLS:
+      #   LatencyMs: 100
+      #   Delta0Ms: 0
+      #   Delta1Ms: 0
+      #   DeltaPrime1Ms: 0
+      #   Delta2Ms: 0
+      #   Delta3Ms: 0
+      #   RequestBatchMaxCount: 5000
+      #   RequestBatchMaxBytesSize: 10485760
+      #   RequestBatchMaxIntervalMs: 1000
+      #   ReliableDecide: true
+      Organizations:
+        - <<: *SampleOrg
+          Policies:
+            <<: *SampleOrgPolicies
+            Admins:
+              Type: Signature
+              Rule: "OR('SampleOrg.member')"
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - <<: *SampleOrg
+          Policies:
+            <<: *SampleOrgPolicies
+            Admins:
+              Type: Signature
+              Rule: "OR('SampleOrg.member')"
+
   # SampleAppChannelSmartBft defines an application channel configuration
   # that uses the Smart BFT orderer.
   SampleAppChannelSmartBft:

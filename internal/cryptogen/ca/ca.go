@@ -235,8 +235,8 @@ func x509Template() x509.Certificate {
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, _ := rand.Int(rand.Reader, serialNumberLimit)
 
-	// set expiry to around 10 years
-	expiry := 3650 * 24 * time.Hour
+	// set expiry to around 1 year (to pass macOS 825-day limit)
+	expiry := 365 * 24 * time.Hour
 	// round minute and backdate 5 minutes
 	notBefore := time.Now().Round(time.Minute).Add(-5 * time.Minute).UTC()
 

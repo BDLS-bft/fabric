@@ -22,4 +22,6 @@ Operations Guides
    enable_tls
    raft_configuration.md
    bft_configuration.md
+   bdls_configuration.md
+   bdls_performance.md
    raft_bft_migration.md

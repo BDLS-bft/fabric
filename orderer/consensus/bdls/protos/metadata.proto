@@ -1,0 +1,37 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+syntax = "proto3";
+
+package orderer.bdls;
+
+option go_package = "github.com/hyperledger/fabric/orderer/consensus/bdls/protos;bdlsproto";
+
+// BlockMetadata is the per-block BDLS metadata written into the
+// BlockMetadata.Metadata[BlockMetadataIndex_ORDERER] slot. It is the
+// source of truth for finality — both the BDLS state machine and any
+// external verifier (via bdls.ValidateDecideMessage) read from it.
+message BlockMetadata {
+  // BDLS height at which the block was finalised. This is strictly
+  // monotone per channel and tracks the block number, not the
+  // round-within-height counter.
+  uint64 bdls_height = 1;
+
+  // Round within the height at which the block was finalised. Useful
+  // for debugging leader-selection / view-change behaviour; not used
+  // for external verification.
+  uint64 bdls_round = 2;
+
+  // Serialised BDLS <decide> message (the bytes returned by
+  // Consensus.CurrentProof). External verifiers feed this directly
+  // into bdls.ValidateDecideMessage together with the target state
+  // to confirm finality without touching the rest of the ledger.
+  bytes bdls_decide_proof = 3;
+
+  // Leader participant id at the moment of finalisation. Mirrors
+  // orderer.etcdraft.BlockMetadata's RaftIndex in spirit.
+  uint64 leader_id = 4;
+}

@@ -128,7 +128,7 @@ func (d *deliverServiceImpl) StartDeliverForChannel(chainID string, ledgerInfo b
 	}
 
 	switch ct := oc.ConsensusType(); ct {
-	case "etcdraft":
+	case "etcdraft", "BDLS":
 		d.blockDeliverer, err = d.createBlockDelivererCFT(chainID, ledgerInfo)
 	case "BFT":
 		switch d.conf.DeliverServiceConfig.Policy {

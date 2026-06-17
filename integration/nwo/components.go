@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"sync"
 
 	"github.com/hyperledger/fabric/integration/nwo/runner"
 	. "github.com/onsi/gomega"
@@ -18,6 +20,8 @@ import (
 
 type Components struct {
 	ServerAddress string `json:"server_address"`
+	cache         map[string]string
+	cacheMutex    sync.Mutex
 }
 
 func (c *Components) ConfigTxGen() string {
@@ -33,6 +37,10 @@ func (c *Components) Discover() string {
 }
 
 func (c *Components) Idemixgen() string {
+	if c.ServerAddress == "" {
+		return c.buildAndCache("github.com/IBM/idemix/tools/idemixgen", "-mod=mod")
+	}
+
 	idemixgen, err := gexec.Build("github.com/IBM/idemix/tools/idemixgen", "-mod=mod")
 	Expect(err).NotTo(HaveOccurred())
 	return idemixgen
@@ -53,7 +61,9 @@ func (c *Components) Peer() string {
 func (c *Components) Cleanup() {}
 
 func (c *Components) Build(path string) string {
-	Expect(c.ServerAddress).NotTo(BeEmpty(), "build server address is empty")
+	if c.ServerAddress == "" {
+		return c.buildAndCache(path)
+	}
 
 	resp, err := http.Get(fmt.Sprintf("http://%s/%s", c.ServerAddress, path))
 	Expect(err).NotTo(HaveOccurred())
@@ -66,6 +76,29 @@ func (c *Components) Build(path string) string {
 	}
 
 	return string(body)
+}
+
+func (c *Components) buildAndCache(path string, buildArgs ...string) string {
+	c.cacheMutex.Lock()
+	defer c.cacheMutex.Unlock()
+
+	if c.cache == nil {
+		c.cache = map[string]string{}
+	}
+
+	cacheKey := path
+	if len(buildArgs) > 0 {
+		cacheKey = cacheKey + ":" + strings.Join(buildArgs, "\x00")
+	}
+
+	if bin, ok := c.cache[cacheKey]; ok {
+		return bin
+	}
+
+	output, err := gexec.Build(path, buildArgs...)
+	Expect(err).NotTo(HaveOccurred())
+	c.cache[cacheKey] = output
+	return output
 }
 
 const CCEnvDefaultImage = "hyperledger/fabric-ccenv:latest"

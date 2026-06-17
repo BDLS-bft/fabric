@@ -9,6 +9,7 @@ package nwo
 import (
 	"os"
 	"os/exec"
+	"strings"
 )
 
 type Command interface {
@@ -24,9 +25,20 @@ type WorkingDirer interface {
 	WorkingDir() string
 }
 
+func cleanEnv(env []string) []string {
+	var clean []string
+	for _, envVar := range env {
+		if strings.HasPrefix(envVar, "CORE_PEER_") || strings.HasPrefix(envVar, "CORE_ORDERER_") {
+			continue
+		}
+		clean = append(clean, envVar)
+	}
+	return clean
+}
+
 func NewCommand(path string, command Command) *exec.Cmd {
 	cmd := exec.Command(path, command.Args()...)
-	cmd.Env = os.Environ()
+	cmd.Env = cleanEnv(os.Environ())
 	if ce, ok := command.(Enver); ok {
 		cmd.Env = append(cmd.Env, ce.Env()...)
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/hyperledger/fabric/internal/configtxlator/update"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/msp"
+	bdlsproto "github.com/hyperledger/fabric/orderer/consensus/bdls/protos"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
@@ -44,6 +45,10 @@ const (
 	ConsensusTypeEtcdRaft = "etcdraft"
 	// ConsensusTypeBFT identifies the BFT-based consensus implementation.
 	ConsensusTypeBFT = "BFT"
+	// ConsensusTypeBDLS identifies the BDLS (Blockchain DLS) consensus
+	// implementation, which reuses the same TLS-cert-per-consenter shape
+	// as BFT but runs the BDLS state machine from orderer/consensus/bdls.
+	ConsensusTypeBDLS = "BDLS"
 
 	// BlockValidationPolicyKey TODO
 	BlockValidationPolicyKey = "BlockValidation"
@@ -227,6 +232,54 @@ func NewOrdererGroup(conf *genesisconfig.Orderer, channelCapabilities map[string
 		// Force leader rotation to be turned off
 		conf.SmartBFT.LeaderRotation = smartbft.Options_ROTATION_OFF
 		// Overwrite policy manually by computing it from the consenters
+		policies.EncodeBFTBlockVerificationPolicy(consenterProtos, ordererGroup)
+	case ConsensusTypeBDLS:
+		// BDLS reuses BFT's ConsenterMapping for the per-consenter TLS
+		// cert / identity triples — both consenters identify members by
+		// the same (MSP id + TLS cert) shape, so duplicating the YAML
+		// shape would just invite drift. We still load the top-level
+		// OrderersValue through the shared path because the cluster layer
+		// reads it to derive endpoints for block pulling, regardless of
+		// which consenter is running on top.
+		consenterProtos, err := consenterProtosFromConfig(conf.ConsenterMapping)
+		if err != nil {
+			return nil, errors.Errorf("cannot load consenter config for orderer type %s: %s", ConsensusTypeBDLS, err)
+		}
+		addValue(ordererGroup, channelconfig.OrderersValue(consenterProtos), channelconfig.AdminsPolicyKey)
+
+		// Build bdlsproto.ConfigMetadata. The per-consenter host/port/TLS
+		// cert/identity fields mirror the BFT ConsenterMapping 1:1.
+		// The bdlsproto.Consenter type deliberately omits the numeric Id
+		// field — BDLS derives its participant id from the ECDSA (X, Y)
+		// coordinates of the TLS public key via DefaultPubKeyToIdentity,
+		// so a separate integer would just be a second source of truth.
+		bdlsConsenters := make([]*bdlsproto.Consenter, 0, len(consenterProtos))
+		for _, c := range consenterProtos {
+			bdlsConsenters = append(bdlsConsenters, &bdlsproto.Consenter{
+				Host:          c.Host,
+				Port:          c.Port,
+				ServerTlsCert: c.ServerTlsCert,
+				ClientTlsCert: c.ClientTlsCert,
+				Identity:      c.Identity,
+			})
+		}
+		bdlsOptions := conf.BDLS
+		if bdlsOptions == nil {
+			bdlsOptions = &bdlsproto.Options{ReliableDecide: true}
+		}
+		bdlsMD := &bdlsproto.ConfigMetadata{
+			Consenters: bdlsConsenters,
+			Options:    bdlsOptions,
+		}
+		consensusMetadata, err = proto.Marshal(bdlsMD)
+		if err != nil {
+			return nil, errors.Errorf("cannot marshal metadata for orderer type %s: %s", ConsensusTypeBDLS, err)
+		}
+		// Reuse the BFT block verification policy: BDLS blocks carry the
+		// same Fabric-standard signature set in BlockMetadata[SIGNATURES]
+		// as BFT blocks, so the verification policy shape is identical.
+		// The BDLS <decide> proof lives in BlockMetadata[ORDERER] and is
+		// verified separately by the consenter's run-loop.
 		policies.EncodeBFTBlockVerificationPolicy(consenterProtos, ordererGroup)
 	default:
 		return nil, errors.Errorf("unknown orderer type: %s", conf.OrdererType)

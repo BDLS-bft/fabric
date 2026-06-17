@@ -20,12 +20,15 @@ import (
 	"github.com/hyperledger/fabric/common/viperutil"
 	cf "github.com/hyperledger/fabric/core/config"
 	"github.com/hyperledger/fabric/msp"
+	bdlsproto "github.com/hyperledger/fabric/orderer/consensus/bdls/protos"
 )
 
 const (
 	// EtcdRaft The type key for etcd based RAFT consensus.
 	EtcdRaft = "etcdraft"
 	BFT      = "BFT"
+	// BDLS is the type key for the BDLS (Blockchain DLS) consenter.
+	BDLS = "BDLS"
 )
 
 var logger = flogging.MustGetLogger("common.tools.configtxgen.localconfig")
@@ -156,6 +159,7 @@ type Orderer struct {
 	ConsenterMapping []*Consenter             `yaml:"ConsenterMapping"`
 	EtcdRaft         *etcdraft.ConfigMetadata `yaml:"EtcdRaft"`
 	SmartBFT         *smartbft.Options        `yaml:"SmartBFT"`
+	BDLS             *bdlsproto.Options       `yaml:"BDLS"`
 	Organizations    []*Organization          `yaml:"Organizations"`
 	MaxChannels      uint64                   `yaml:"MaxChannels"`
 	Capabilities     map[string]bool          `yaml:"Capabilities"`
@@ -418,6 +422,39 @@ loop:
 			serverCertPath := string(c.GetServerTlsCert())
 			cf.TranslatePathInPlace(configDir, &serverCertPath)
 			c.ServerTlsCert = []byte(serverCertPath)
+		}
+	case BDLS:
+		// BDLS uses the same ConsenterMapping shape as BFT (host, port,
+		// TLS certs, identity, MSP id) because both consenters identify
+		// members by TLS cert public key. Validate the mapping with the
+		// same rules as BFT so misconfigured YAML fails at genesis time
+		// rather than at HandleChain time.
+		if len(ord.ConsenterMapping) == 0 {
+			logger.Panicf("%s configuration did not specify any consenter", BDLS)
+		}
+		for _, c := range ord.ConsenterMapping {
+			if c.Host == "" {
+				logger.Panicf("consenter info in %s configuration did not specify host", BDLS)
+			}
+			if c.Port == 0 {
+				logger.Panicf("consenter info in %s configuration did not specify port", BDLS)
+			}
+			if c.ClientTLSCert == "" {
+				logger.Panicf("consenter info in %s configuration did not specify client TLS cert", BDLS)
+			}
+			if c.ServerTLSCert == "" {
+				logger.Panicf("consenter info in %s configuration did not specify server TLS cert", BDLS)
+			}
+			if len(c.MSPID) == 0 {
+				logger.Panicf("consenter info in %s configuration did not specify MSP ID", BDLS)
+			}
+			if len(c.Identity) == 0 {
+				logger.Panicf("consenter info in %s configuration did not specify identity certificate", BDLS)
+			}
+
+			cf.TranslatePathInPlace(configDir, &c.ClientTLSCert)
+			cf.TranslatePathInPlace(configDir, &c.ServerTLSCert)
+			cf.TranslatePathInPlace(configDir, &c.Identity)
 		}
 	case BFT:
 		if ord.SmartBFT == nil {

@@ -71,6 +71,21 @@ The following orderer metrics are exported for consumption by Prometheus.
 | consensus_BFT_leader_id                              | gauge     | The id of the current leader according to the latest       | channel   |                                                                    |
 |                                                      |           | committed block.                                           |           |                                                                    |
 +------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_cluster_size                          | gauge     | Number of participants in the BDLS consensus group for     | channel   |                                                                    |
+|                                                      |           | this channel.                                              |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_committed_block_number                | gauge     | The number of the latest BDLS-finalised block on this      | channel   |                                                                    |
+|                                                      |           | channel.                                                   |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_is_leader                             | gauge     | 1 if this node is the leader of the current BDLS round,    | channel   |                                                                    |
+|                                                      |           | else 0.                                                    |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_leader_id                             | gauge     | The participant id of the current BDLS leader for the      | channel   |                                                                    |
+|                                                      |           | latest committed block.                                    |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_proposal_failures                     | counter   | Count of proposal submission / marshal failures surfaced   | channel   |                                                                    |
+|                                                      |           | by the chain run-loop.                                     |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
 | consensus_etcdraft_active_nodes                      | gauge     | Number of active nodes in this channel.                    | channel   |                                                                    |
 +------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
 | consensus_etcdraft_cluster_size                      | gauge     | Number of nodes in this channel.                           | channel   |                                                                    |
@@ -286,6 +301,21 @@ associated with the metric.
 +---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
 | consensus.BFT.leader_id.%{channel}                                        | gauge     | The id of the current leader according to the latest       |
 |                                                                           |           | committed block.                                           |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.cluster_size.%{channel}                                    | gauge     | Number of participants in the BDLS consensus group for     |
+|                                                                           |           | this channel.                                              |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.committed_block_number.%{channel}                          | gauge     | The number of the latest BDLS-finalised block on this      |
+|                                                                           |           | channel.                                                   |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.is_leader.%{channel}                                       | gauge     | 1 if this node is the leader of the current BDLS round,    |
+|                                                                           |           | else 0.                                                    |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.leader_id.%{channel}                                       | gauge     | The participant id of the current BDLS leader for the      |
+|                                                                           |           | latest committed block.                                    |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.proposal_failures.%{channel}                               | counter   | Count of proposal submission / marshal failures surfaced   |
+|                                                                           |           | by the chain run-loop.                                     |
 +---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
 | consensus.etcdraft.active_nodes.%{channel}                                | gauge     | Number of active nodes in this channel.                    |
 +---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
