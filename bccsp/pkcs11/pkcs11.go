@@ -523,7 +523,8 @@ func (csp *Provider) generateECKey(curve asn1.ObjectIdentifier, ephemeral bool) 
 		pkcs11.NewAttribute(pkcs11.CKA_SENSITIVE, true),
 	}
 
-	pub, prv, err := csp.ctx.GenerateKeyPair(session,
+	pub, prv, err := csp.ctx.GenerateKeyPair(
+		session,
 		[]*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_EC_KEY_PAIR_GEN, nil)},
 		pubkeyT,
 		prvkeyT,

@@ -94,7 +94,8 @@ var _ = Describe("This is the thing", func() {
 		})
 	})
 
-	DescribeTable("#fqname",
+	DescribeTable(
+		"#fqname",
 		func(n *Namer, expectedName string) {
 			n.nameFormat = "%{#fqname}"
 			Expect(n.Format()).To(Equal(expectedName))

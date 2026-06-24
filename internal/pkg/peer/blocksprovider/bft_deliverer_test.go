@@ -170,10 +170,11 @@ func (s *bftDelivererTestSetup) initialize(t *testing.T) {
 			mon.ErrorsChannelCalls(func() <-chan error {
 				return monErrC
 			})
-			mon.MonitorCalls(func() {
-				<-monDoneC
-				close(monEndC)
-			},
+			mon.MonitorCalls(
+				func() {
+					<-monDoneC
+					close(monEndC)
+				},
 			)
 			mon.StopCalls(func() {
 				select {
@@ -194,7 +195,8 @@ func (s *bftDelivererTestSetup) initialize(t *testing.T) {
 			s.monEndC = monEndC
 
 			return mon
-		})
+		},
+	)
 
 	s.d = &blocksprovider.BFTDeliverer{
 		ChannelID:                       "channel-id",
@@ -248,7 +250,8 @@ func (s *bftDelivererTestSetup) assertEventuallyMonitorCallCount(n int) {
 			defer s.mutex.Unlock()
 
 			return s.fakeCensorshipMon.MonitorCallCount()
-		}).Should(Equal(n))
+		},
+	).Should(Equal(n))
 }
 
 func TestBFTDeliverer_NoBlocks(t *testing.T) {
@@ -1014,7 +1017,8 @@ func TestBFTDeliverer_CensorshipMonitorEvents(t *testing.T) {
 					defer setup.mutex.Unlock()
 
 					return len(setup.monitorSet)
-				}).Should(Equal(n + 1))
+				},
+			).Should(Equal(n + 1))
 
 			setup.gWithT.Eventually(setup.fakeDialer.DialCallCount).Should(Equal(n + 1))
 			setup.gWithT.Expect(setup.fakeSleeper.SleepCallCount()).To(Equal(n))
