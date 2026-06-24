@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/orderer/common/multichannel"
 	"github.com/hyperledger/fabric/protoutil"
 )
 
@@ -23,7 +22,6 @@ func (c *Chain) TestMultiClients() {
 	time.Sleep(8 * time.Second)
 	// start := time.Now()
 	// c.Logger.Debugf("TEST TPS start:", start)
-	multichannel.SetTPSStart()
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
 	go c.TestOrderClient1(wg)
