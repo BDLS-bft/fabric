@@ -18,7 +18,6 @@ import (
 // TestMultiClients function runs multiple clients concurrently
 // Submits different envelopes to measure the TPS.
 func (c *Chain) TestMultiClients() {
-
 	c.logger.Info(" ------------------------------- c.raftID is: %v", c.raftID)
 	time.Sleep(10 * time.Second)
 	if c.raftID == 2 {

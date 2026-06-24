@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package bdls
 
 import (
-	//protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
+	// protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
 	protos "github.com/BDLS-bft/bdls"
 	"github.com/golang/protobuf/proto"
 	ab "github.com/hyperledger/fabric-protos-go/orderer"
