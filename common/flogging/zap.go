@@ -83,7 +83,7 @@ func (f *FabricLogger) Info(args ...interface{}) { f.s.Infof(formatArgs(args)) }
 
 func (f *FabricLogger) Infof(template string, args ...interface{}) { f.s.Infof(template, args...) }
 func (f *FabricLogger) Infow(msg string, kvPairs ...interface{})   { f.s.Infow(msg, kvPairs...) }
-func (f *FabricLogger) Panic(args ...interface{}) { f.s.Panicf(formatArgs(args)) }
+func (f *FabricLogger) Panic(args ...interface{})                  { f.s.Panicf(formatArgs(args)) }
 
 func (f *FabricLogger) Panicf(template string, args ...interface{}) { f.s.Panicf(template, args...) }
 
@@ -93,7 +93,7 @@ func (f *FabricLogger) Warn(args ...interface{}) { f.s.Warnf(formatArgs(args)) }
 
 func (f *FabricLogger) Warnf(template string, args ...interface{}) { f.s.Warnf(template, args...) }
 func (f *FabricLogger) Warnw(msg string, kvPairs ...interface{})   { f.s.Warnw(msg, kvPairs...) }
-func (f *FabricLogger) Warning(args ...interface{}) { f.s.Warnf(formatArgs(args)) }
+func (f *FabricLogger) Warning(args ...interface{})                { f.s.Warnf(formatArgs(args)) }
 
 func (f *FabricLogger) Warningf(template string, args ...interface{}) { f.s.Warnf(template, args...) }
 
