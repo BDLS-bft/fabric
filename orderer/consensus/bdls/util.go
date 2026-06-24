@@ -130,7 +130,8 @@ func newBlockPuller(
 	support consensus.ConsenterSupport,
 	baseDialer *cluster.PredicateDialer,
 	clusterConfig localconfig.Cluster,
-	bccsp bccsp.BCCSP) (BlockPuller, error) {
+	bccsp bccsp.BCCSP,
+) (BlockPuller, error) {
 	verifyBlockSequence := func(blocks []*cb.Block, _ string) error {
 		vb := cluster.BlockVerifierBuilder(bccsp)
 		return cluster.VerifyBlocksBFT(blocks, support.SignatureVerifier(), vb)
@@ -361,16 +362,16 @@ func RemoteNodesFromConfigBlock(block *cb.Block, logger *flogging.FabricLogger, 
 		if err != nil {
 			logger.Panicf("Failed to sanitize identity: %v [%s]", err, string(consenter.Identity))
 		}
-		id2Identies[(uint64)(consenter.Id)] = sanitizedID
+		id2Identies[uint64(consenter.Id)] = sanitizedID
 		logger.Infof("%s %d ---> %s", bundle.ConfigtxValidator().ChannelID(), consenter.Id, string(consenter.Identity))
 
-		nodeIDs = append(nodeIDs, (uint64)(consenter.Id))
+		nodeIDs = append(nodeIDs, uint64(consenter.Id))
 
-		serverCertAsDER, err := pemToDER(consenter.ServerTlsCert, (uint64)(consenter.Id), "server", logger)
+		serverCertAsDER, err := pemToDER(consenter.ServerTlsCert, uint64(consenter.Id), "server", logger)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
-		clientCertAsDER, err := pemToDER(consenter.ClientTlsCert, (uint64)(consenter.Id), "client", logger)
+		clientCertAsDER, err := pemToDER(consenter.ClientTlsCert, uint64(consenter.Id), "client", logger)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
@@ -400,7 +401,7 @@ func RemoteNodesFromConfigBlock(block *cb.Block, logger *flogging.FabricLogger, 
 
 		remoteNodes = append(remoteNodes, cluster.RemoteNode{
 			NodeAddress: cluster.NodeAddress{
-				ID:       (uint64)(consenter.Id),
+				ID:       uint64(consenter.Id),
 				Endpoint: fmt.Sprintf("%s:%d", consenter.Host, consenter.Port),
 			},
 

@@ -576,11 +576,12 @@ var _ = Describe("CFT-Deliverer", func() {
 				Eventually(fakeBlockHandler.HandleBlockCallCount).Should(Equal(1))
 				channelID, block := fakeBlockHandler.HandleBlockArgsForCall(0)
 				Expect(channelID).To(Equal("channel-id"))
-				Expect(block).To(Equal(&common.Block{
-					Header: &common.BlockHeader{
-						Number: 8,
+				Expect(block).To(Equal(
+					&common.Block{
+						Header: &common.BlockHeader{
+							Number: 8,
+						},
 					},
-				},
 				))
 			})
 		})

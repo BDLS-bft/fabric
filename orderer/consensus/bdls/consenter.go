@@ -14,7 +14,7 @@ import (
 	"code.cloudfoundry.org/clock"
 	"github.com/hyperledger/fabric-protos-go/common"
 
-	//cb "github.com/hyperledger/fabric-protos-go/common"
+	// cb "github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric-protos-go/msp"
 	ab "github.com/hyperledger/fabric-protos-go/orderer"
 
@@ -38,8 +38,7 @@ import (
 )
 
 // Config contains bdls configurations
-type Config struct {
-}
+type Config struct{}
 
 // ChainGetter obtains instances of ChainSupport for the given channel
 type ChainGetter interface {
@@ -109,9 +108,9 @@ func (c *Consenter) HandleChain(support consensus.ConsenterSupport, metadata *co
 	}
 
 	chain, err := NewChain(
-		//configValidator,
-		(uint64)(selfID),
-		//config,
+		// configValidator,
+		uint64(selfID),
+		// config,
 
 		path.Join(c.WALBaseDir, support.ChannelID()),
 		puller,

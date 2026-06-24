@@ -23,7 +23,7 @@ import (
 	"github.com/BDLS-bft/bdls"
 	"github.com/hyperledger/fabric-protos-go/common"
 
-	//cb "github.com/hyperledger/fabric-protos-go/common"
+	// cb "github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric-protos-go/orderer"
 	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
 
@@ -78,12 +78,12 @@ type signerSerializer interface {
 
 type submit struct {
 	req *orderer.SubmitRequest
-	//leader chan uint64
+	// leader chan uint64
 }
 
 type apply struct {
-	//height uint64
-	//round  uint64
+	// height uint64
+	// round  uint64
 	state bdls.State
 }
 
@@ -96,7 +96,7 @@ type Chain struct {
 
 	//agent *agent
 
-	//BDLS
+	// BDLS
 	consensus           *bdls.Consensus
 	config              *bdls.Config
 	consensusMessages   [][]byte      // all consensus message awaiting to be processed
@@ -120,10 +120,10 @@ type Chain struct {
 	opts     Options
 
 	lastBlock *common.Block
-	//TBD
+	// TBD
 	RuntimeConfig *atomic.Value
 
-	//Config           types.Configuration
+	// Config           types.Configuration
 	BlockPuller      BlockPuller
 	Comm             cluster.Communicator
 	SignerSerializer signerSerializer
@@ -167,7 +167,7 @@ type Options struct {
 	Clock clock.Clock
 	// BlockMetadata and Consenters should only be modified while under lock
 	// of bdlsChainLock
-	//Consenters    map[uint64]*etcdraft.Consenter
+	// Consenters    map[uint64]*etcdraft.Consenter
 	Consenters []*common.Consenter
 
 	portAddress string
@@ -205,7 +205,6 @@ func (c *Chain) Configure(env *common.Envelope, configSeq uint64) error {
 }
 
 func (c *Chain) submit(env *common.Envelope, configSeq uint64) error {
-
 	/*if err := c.isRunning(); err != nil {
 		c.Metrics.ProposalFailures.Add(1)
 		return err
@@ -219,7 +218,6 @@ func (c *Chain) submit(env *common.Envelope, configSeq uint64) error {
 		c.Metrics.ProposalFailures.Add(1)
 		return errors.Errorf("chain is stopped")
 	}
-
 }
 
 // WaitReady blocks waiting for consenter to be ready for accepting new messages.
@@ -238,15 +236,15 @@ func (c *Chain) WaitReady() error {
 
 // Errored returns a channel which will close when an error has occurred.
 func (c *Chain) Errored() <-chan struct{} {
-	//TODO
+	// TODO
 	return nil
 }
 
 // NewChain creates new chain
 func NewChain(
-	//cv ConfigValidator,
+	// cv ConfigValidator,
 	selfID uint64,
-	//config types.Configuration,
+	// config types.Configuration,
 	walDir string,
 	blockPuller BlockPuller,
 	comm cluster.Communicator,
@@ -256,7 +254,6 @@ func NewChain(
 	metrics *Metrics,
 	bccsp bccsp.BCCSP,
 	opts Options,
-
 ) (*Chain, error) {
 	/*requestInspector := &RequestInspector{
 		ValidateIdentityStructure: func(_ *msp.SerializedIdentity) error {
@@ -291,8 +288,8 @@ func NewChain(
 		startC:           make(chan struct{}),
 		errorC:           make(chan struct{}),
 		readyC:           make(chan Ready),
-		//RuntimeConfig:     &atomic.Value{},
-		//Config:            config,
+		// RuntimeConfig:     &atomic.Value{},
+		// Config:            config,
 		clock:             opts.Clock,
 		consensusRelation: types2.ConsensusRelationConsenter,
 		status:            types2.StatusActive,
@@ -333,7 +330,7 @@ func NewChain(
 	// setup consensus config at the given height
 	config := &bdls.Config{
 		Epoch:         time.Now(),
-		CurrentHeight: c.lastBlock.Header.Number, //support.Height() - 1, //0,
+		CurrentHeight: c.lastBlock.Header.Number, // support.Height() - 1, //0,
 		StateCompare:  func(a bdls.State, b bdls.State) int { return bytes.Compare(a, b) },
 		StateValidate: func(bdls.State) bool { return true },
 	}
@@ -349,8 +346,8 @@ func NewChain(
 		"44652770827640294682875208048383575561358062645764968117337703282091165609211",
 		"80512969964988849039583604411558290822829809041684390237207179810031917243659",
 		"55978351916851767744151875911101025920456547576858680756045508192261620541580")
-	for k := range Keys { //c.opts.Consenters {
-		//for k := range c.opts.Consenters {
+	for k := range Keys { // c.opts.Consenters {
+		// for k := range c.opts.Consenters {
 		i := new(big.Int)
 		_, err := fmt.Sscan(Keys[k], i)
 		if err != nil {
@@ -384,8 +381,7 @@ func NewChain(
 
 // Halt frees the resources which were allocated for this Chain.
 func (c *Chain) Halt() {
-
-	//TODO
+	// TODO
 }
 
 // Get the remote peers from the []*cb.Consenter
@@ -608,12 +604,10 @@ func (c *Chain) Start() {
 
 	go c.startConsensus(c.config)
 	go c.run()
-
 }
 
 // consensus for one round with full procedure
 func (c *Chain) startConsensus(config *bdls.Config) error {
-
 	// var propC chan<- *common.Block
 
 	// create consensus
@@ -645,7 +639,7 @@ func (c *Chain) startConsensus(config *bdls.Config) error {
 	}
 
 	// start updater
-	//transportLayer.Update()
+	// transportLayer.Update()
 
 	// passive connection from peers
 	go func() {
@@ -704,14 +698,12 @@ func (c *Chain) startConsensus(config *bdls.Config) error {
 }
 
 func (c *Chain) apply( /*height uint64, round uint64,*/ state bdls.State) {
-
 	newBlock := protoutil.UnmarshalBlockOrPanic(state)
 	c.writeBlock(newBlock, 0)
 	c.Metrics.CommittedBlockNumber.Set(float64(newBlock.Header.Number))
 }
 
 func (c *Chain) run() {
-
 	ticking := false
 	timer := c.clock.NewTimer(time.Second)
 	// we need a stopped timer rather than nil,
@@ -744,15 +736,15 @@ func (c *Chain) run() {
 	ch := make(chan *common.Block, c.opts.MaxInflightBlocks)
 	c.blockInflight = 0
 
-	//var bc *blockCreator
-	//No need to create Var for bc, BFT type Orderer intialaize the blockCreator in each node participent
+	// var bc *blockCreator
+	// No need to create Var for bc, BFT type Orderer intialaize the blockCreator in each node participent
 	bc := &blockCreator{
 		hash:   protoutil.BlockHeaderHash(c.lastBlock.Header),
 		number: c.lastBlock.Header.Number,
 		logger: c.Logger,
 	}
 	c.Logger.Infof("Start accepting requests at block [%d]", c.lastBlock.Header.Number)
-	//submitC = nil
+	// submitC = nil
 	// Leader should call Propose in go routine, because this method may be blocked
 	// if node is leaderless (this can happen when leader steps down in a heavily
 	// loaded network). We need to make sure applyC can still be consumed properly.
@@ -791,7 +783,7 @@ func (c *Chain) run() {
 				continue
 			}
 			// Direct Ordered for the Payload
-			//batches, pending := c.support.BlockCutter().Ordered(s.req.Payload)
+			// batches, pending := c.support.BlockCutter().Ordered(s.req.Payload)
 
 			batches, pending, err := c.ordered(s.req)
 			if err != nil {
@@ -859,7 +851,6 @@ func (c *Chain) run() {
 			return
 		}
 	}
-
 }
 
 // StatusReport returns the ConsensusRelation & Status
@@ -898,8 +889,8 @@ type Peer struct {
 // RaftPeers maps consenters to slice of raft.Peer
 func BdlsPeers(consenters []*common.Consenter) []Peer {
 	var peers []Peer
-	//consenterIDs := len(consenters)
-	//for id := range consenterIDs {
+	// consenterIDs := len(consenters)
+	// for id := range consenterIDs {
 	for i := 1; i <= len(consenters); i++ {
 		peers = append(peers, Peer{ID: uint64(i)})
 	}
@@ -927,7 +918,6 @@ func (c *Chain) runNode() {
 }
 
 func (c *Chain) Ready() <-chan Ready {
-
 	height, _, state := c.transportLayer.GetLatestState()
 	//readyC := make(chan Ready)
 	if height > c.lastBlock.Header.Number {
