@@ -100,7 +100,7 @@ func newChaincodeStub(handler *Handler, channelID, txid string, input *pb.Chainc
 		}
 		stub.creator = shdr.GetCreator()
 
-		// extract trasient data from proposal payload
+		// extract transient data from proposal payload
 		payload := &pb.ChaincodeProposalPayload{}
 		if err := proto.Unmarshal(stub.proposal.GetPayload(), payload); err != nil {
 			return nil, fmt.Errorf("failed to extract proposal payload: %s", err)
@@ -441,12 +441,12 @@ func (s *ChaincodeStub) GetHistoryForKey(key string) (HistoryQueryIteratorInterf
 	return &HistoryQueryIterator{CommonIterator: &CommonIterator{s.handler, s.ChannelID, s.TxID, response, 0}}, nil
 }
 
-//CreateCompositeKey documentation can be found in interfaces.go
+// CreateCompositeKey documentation can be found in interfaces.go
 func (s *ChaincodeStub) CreateCompositeKey(objectType string, attributes []string) (string, error) {
 	return CreateCompositeKey(objectType, attributes)
 }
 
-//SplitCompositeKey documentation can be found in interfaces.go
+// SplitCompositeKey documentation can be found in interfaces.go
 func (s *ChaincodeStub) SplitCompositeKey(compositeKey string) (string, []string, error) {
 	return splitCompositeKey(compositeKey)
 }
@@ -491,10 +491,10 @@ func validateCompositeKeyAttribute(str string) error {
 	return nil
 }
 
-//To ensure that simple keys do not go into composite key namespace,
-//we validate simplekey to check whether the key starts with 0x00 (which
-//is the namespace for compositeKey). This helps in avoding simple/composite
-//key collisions.
+// To ensure that simple keys do not go into composite key namespace,
+// we validate simplekey to check whether the key starts with 0x00 (which
+// is the namespace for compositeKey). This helps in avoiding simple/composite
+// key collisions.
 func validateSimpleKeys(simpleKeys ...string) error {
 	for _, key := range simpleKeys {
 		if len(key) > 0 && key[0] == compositeKeyNamespace[0] {
@@ -504,12 +504,7 @@ func validateSimpleKeys(simpleKeys ...string) error {
 	return nil
 }
 
-//GetStateByPartialCompositeKey function can be invoked by a chaincode to query the
-//state based on a given partial composite key. This function returns an
-//iterator which can be used to iterate over all composite keys whose prefix
-//matches the given partial composite key. This function should be used only for
-//a partial composite key. For a full composite key, an iter with empty response
-//would be returned.
+// GetStateByPartialCompositeKey documentation can be found in interfaces.go
 func (s *ChaincodeStub) GetStateByPartialCompositeKey(objectType string, attributes []string) (StateQueryIteratorInterface, error) {
 	collection := ""
 	startKey, endKey, err := s.createRangeKeysForPartialCompositeKey(objectType, attributes)
