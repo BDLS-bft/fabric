@@ -128,23 +128,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-require (
-	github.com/SmartBFT-Go/consensus v0.3.0
-	github.com/fsouza/go-dockerclient v1.13.2
-	github.com/hyperledger/fabric-chaincode-go v0.0.0-20240704073638-9fb89180dc17
-	github.com/hyperledger/fabric-protos-go v0.3.7
-)
-
-require (
-	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
-	github.com/containerd/log v0.1.0 // indirect
-	github.com/moby/go-archive v0.2.0 // indirect
-	github.com/moby/patternmatcher v0.6.1 // indirect
-	github.com/moby/sys/sequential v0.6.0 // indirect
-	github.com/moby/sys/user v0.4.0 // indirect
-	github.com/moby/sys/userns v0.1.0 // indirect
-	github.com/moby/term v0.5.2 // indirect
-	github.com/sirupsen/logrus v1.9.4 // indirect
-)
-
 replace github.com/BDLS-bft/bdls => ./third_party/bdls

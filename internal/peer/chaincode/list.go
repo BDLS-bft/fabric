@@ -7,20 +7,18 @@ SPDX-License-Identifier: Apache-2.0
 package chaincode
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
-	"reflect"
 	"strings"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -144,27 +142,27 @@ type ccInfo struct {
 }
 
 func (cci ccInfo) String() string {
-	b := bytes.Buffer{}
-	md := reflect.ValueOf(*cci.ChaincodeInfo)
-	md2 := reflect.Indirect(reflect.ValueOf(*cci.ChaincodeInfo)).Type()
-	for i := 0; i < md.NumField(); i++ {
-		f := md.Field(i)
-		val := f.String()
-		if isBytes(f) {
-			val = hex.EncodeToString(f.Bytes())
-		}
-		if len(val) == 0 {
-			continue
-		}
-		// Skip the proto-internal generated fields
-		if strings.HasPrefix(md2.Field(i).Name, "XXX") {
-			continue
-		}
-		b.WriteString(fmt.Sprintf("%s: %s, ", md2.Field(i).Name, val))
+	var parts []string
+	if cci.Name != "" {
+		parts = append(parts, fmt.Sprintf("Name: %s", cci.Name))
 	}
-	return b.String()[:len(b.String())-2]
-}
-
-func isBytes(v reflect.Value) bool {
-	return v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8
+	if cci.Version != "" {
+		parts = append(parts, fmt.Sprintf("Version: %s", cci.Version))
+	}
+	if cci.Path != "" {
+		parts = append(parts, fmt.Sprintf("Path: %s", cci.Path))
+	}
+	if cci.Input != "" {
+		parts = append(parts, fmt.Sprintf("Input: %s", cci.Input))
+	}
+	if cci.Escc != "" {
+		parts = append(parts, fmt.Sprintf("Escc: %s", cci.Escc))
+	}
+	if cci.Vscc != "" {
+		parts = append(parts, fmt.Sprintf("Vscc: %s", cci.Vscc))
+	}
+	if len(cci.Id) > 0 {
+		parts = append(parts, fmt.Sprintf("Id: %s", hex.EncodeToString(cci.Id)))
+	}
+	return strings.Join(parts, ", ")
 }
