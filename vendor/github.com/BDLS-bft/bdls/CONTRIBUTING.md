@@ -9,13 +9,10 @@ Email: a.alsalih2@gmail.com,
 Discord: ahmedalsalih#6158
 ```
 
-* You can join the Mentorship Project 2023 :
-https://wiki.hyperledger.org/display/INTERN/Integrate+new+BFT+protocol+%28BDLS+consensus%29+with+Fabric
-
 
 * Bi-weekly lab meeting.
 ```
-Next meeting: Thursday, Mar-30, 2023
+Next meeting: Thursday, Mar-14, 2024
 9:30am to 10:00am Eastern Time
 Repeats:
 Every 2 weeks on Thursday
@@ -30,3 +27,7 @@ You can join the calls every other Thursday at 9:30 AM Eastern at:
 You can also talk with the developers of the lab in the **`#bdls`** channel on the Hyperledger Discord server at:
 
 https://chat.hyperledger.org/
+
+
+# CLP -LFX program
+https://wiki.hyperledger.org/display/CLP/Integrate+new+BFT+protocol+%28BDLS+consensus%29+with+Fabric

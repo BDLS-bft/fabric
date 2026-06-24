@@ -29,12 +29,14 @@ network scenarios, and are the focus of extensive work in improving Internet sec
 is an area largely ignored by most in mainstream BFT protocol design.
 (Paper: https://eprint.iacr.org/2019/1460.pdf or https://dl.acm.org/doi/abs/10.1145/3538227 or  https://doi.org/10.1145/3538227 or https://www.doi.org/10.1007/978-3-030-91859-0_2 )
 
+
 For this library, to make the runtime behavior of consensus algorithm predictable as function:
 y = f(x, t), where 'x' is the message it received, and 't' is the time while being called,
   then'y' is the deterministic status of consensus after 'x' and 't' applied to 'f',
 it has been designed in a deterministic scheme, without parallel computing, networking, and
 the correctness of program implementation can be proven with proper test cases.
 
+[BDLS as a Blockchain Finality Gadget: Improving Byzantine Fault Tolerance in Hyperledger Fabric](https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=10718288)
 ## Features
 
 1. Pure algorithm implementation in deterministic and predictable behavior, easily to be integrated into existing projects, refer to [DFA](https://en.wikipedia.org/wiki/Deterministic_finite_automaton) for more.

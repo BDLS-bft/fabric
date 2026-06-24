@@ -54,6 +54,7 @@ func (p Proposal) Digest() string {
 		Payload:              p.Payload,
 		Header:               p.Header,
 	})
+
 	if err != nil {
 		panic(fmt.Sprintf("failed marshaling proposal: %v", err))
 	}
@@ -74,18 +75,18 @@ type Checkpoint struct {
 	signatures []Signature
 }
 
-func (c *Checkpoint) Get() (*smartbftprotos.Proposal, []*smartbftprotos.Signature) {
+func (c *Checkpoint) Get() (smartbftprotos.Proposal, []*smartbftprotos.Signature) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	p := &smartbftprotos.Proposal{
+	p := smartbftprotos.Proposal{
 		Header:               c.proposal.Header,
 		Payload:              c.proposal.Payload,
 		Metadata:             c.proposal.Metadata,
 		VerificationSequence: uint64(c.proposal.VerificationSequence),
 	}
 
-	signatures := make([]*smartbftprotos.Signature, 0, len(c.signatures))
+	var signatures []*smartbftprotos.Signature
 	for _, sig := range c.signatures {
 		signatures = append(signatures, &smartbftprotos.Signature{
 			Msg:    sig.Msg,
