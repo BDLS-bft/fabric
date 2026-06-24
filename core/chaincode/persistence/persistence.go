@@ -15,8 +15,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
 	"github.com/hyperledger/fabric/common/chaincode"
-	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/util"
 
 	"github.com/pkg/errors"
@@ -55,7 +55,8 @@ func (f *FilesystemIO) WriteFile(path, name string, data []byte) error {
 		if err == nil {
 			err = errors.Errorf(
 				"failed to write the entire content of the file, expected %d, wrote %d",
-				len(data), n)
+				len(data), n,
+			)
 		}
 		return errors.Wrapf(err, "error writing to temp file '%s'", tmpFile.Name())
 	}

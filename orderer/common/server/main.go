@@ -19,19 +19,19 @@ import (
 	"syscall"
 	"time"
 
-	ab "github.com/hyperledger/fabric-protos-go/orderer"
-	"github.com/hyperledger/fabric/bccsp"
-	"github.com/hyperledger/fabric/bccsp/factory"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	"github.com/hyperledger/fabric-lib-go/bccsp/factory"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	floggingmetrics "github.com/hyperledger/fabric-lib-go/common/flogging/metrics"
+	"github.com/hyperledger/fabric-lib-go/common/metrics"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	ab "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/fabhttp"
-	"github.com/hyperledger/fabric/common/flogging"
-	floggingmetrics "github.com/hyperledger/fabric/common/flogging/metrics"
 	"github.com/hyperledger/fabric/common/grpclogging"
 	"github.com/hyperledger/fabric/common/grpcmetrics"
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
-	"github.com/hyperledger/fabric/common/metrics"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
 	"github.com/hyperledger/fabric/core/operations"
 	"github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
@@ -42,8 +42,8 @@ import (
 	"github.com/hyperledger/fabric/orderer/common/metadata"
 	"github.com/hyperledger/fabric/orderer/common/multichannel"
 	"github.com/hyperledger/fabric/orderer/consensus"
-	"github.com/hyperledger/fabric/orderer/consensus/bdls"
 	"github.com/hyperledger/fabric/orderer/consensus/etcdraft"
+	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
 	"github.com/hyperledger/fabric/protoutil"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
@@ -101,6 +101,7 @@ func Main() {
 	flogging.SetObserver(logObserver)
 
 	serverConfig := initializeServerConfig(conf, metricsProvider)
+	serverConfig.HealthCheckEnabled = true
 	grpcServer := initializeGrpcServer(conf, serverConfig)
 	caMgr := &caManager{
 		appRootCAsByChain:     make(map[string][][]byte),
@@ -162,7 +163,8 @@ func Main() {
 		expirationLogger.Infof,
 		expirationLogger.Warnf, // This can be used to piggyback a metric event in the future
 		time.Now(),
-		time.AfterFunc)
+		time.AfterFunc,
+	)
 
 	// if cluster is reusing client-facing server, then it is already
 	// appended to serversToUpdate at this point.
@@ -193,6 +195,7 @@ func Main() {
 	defer adminServer.Stop()
 
 	mutualTLS := serverConfig.SecOpts.UseTLS && serverConfig.SecOpts.RequireClientCert
+
 	server := NewServer(
 		manager,
 		metricsProvider,
@@ -220,7 +223,16 @@ func Main() {
 	if conf.General.Profile.Enabled {
 		go initializeProfilingService(conf)
 	}
-	ab.RegisterAtomicBroadcastServer(grpcServer.Server(), server)
+
+	clientRateLimiter, orgRateLimiter := CreateThrottlers(conf.General.Throttling)
+	throttlingWrapper := &ThrottlingAtomicBroadcast{
+		ThrottlingEnabled:     conf.General.Throttling.Rate > 0,
+		PerOrgRateLimiter:     orgRateLimiter,
+		PerClientRateLimiter:  clientRateLimiter,
+		AtomicBroadcastServer: server,
+	}
+
+	ab.RegisterAtomicBroadcastServer(grpcServer.Server(), throttlingWrapper)
 	logger.Info("Beginning to serve requests")
 	if err := grpcServer.Start(); err != nil {
 		logger.Fatalf("Atomic Broadcast gRPC server has terminated while serving requests due to: %v", err)
@@ -477,19 +489,19 @@ func initializeServerConfig(conf *localconfig.TopLevel, metricsProvider metrics.
 		// load crypto material from files
 		serverCertificate, err := os.ReadFile(conf.General.TLS.Certificate)
 		if err != nil {
-			logger.Fatalf("Failed to load server Certificate file '%s' (%s)",
+			logger.Fatalf("Failed to load server TLS Certificate file '%s' (%s)",
 				conf.General.TLS.Certificate, err)
 		}
 		serverKey, err := os.ReadFile(conf.General.TLS.PrivateKey)
 		if err != nil {
-			logger.Fatalf("Failed to load PrivateKey file '%s' (%s)",
+			logger.Fatalf("Failed to load TLS PrivateKey file '%s' (%s)",
 				conf.General.TLS.PrivateKey, err)
 		}
 		var serverRootCAs, clientRootCAs [][]byte
 		for _, serverRoot := range conf.General.TLS.RootCAs {
 			root, err := os.ReadFile(serverRoot)
 			if err != nil {
-				logger.Fatalf("Failed to load ServerRootCAs file '%s' (%s)",
+				logger.Fatalf("Failed to load TLS ServerRootCAs file '%s' (%s)",
 					err, serverRoot)
 			}
 			serverRootCAs = append(serverRootCAs, root)
@@ -498,7 +510,7 @@ func initializeServerConfig(conf *localconfig.TopLevel, metricsProvider metrics.
 			for _, clientRoot := range conf.General.TLS.ClientRootCAs {
 				root, err := os.ReadFile(clientRoot)
 				if err != nil {
-					logger.Fatalf("Failed to load ClientRootCAs file '%s' (%s)",
+					logger.Fatalf("Failed to load TLS ClientRootCAs file '%s' (%s)",
 						err, clientRoot)
 				}
 				clientRootCAs = append(clientRootCAs, root)
@@ -623,9 +635,7 @@ func initializeMultichannelRegistrar(
 	// the orderer can start without channels at all and have an initialized cluster type consenter
 	etcdraftConsenter, clusterMetrics := etcdraft.New(clusterDialer, conf, srvConf, srv, registrar, metricsProvider, bccsp)
 	consenters["etcdraft"] = etcdraftConsenter
-	//consenters["BFT"] = smartbft.New(dpmr.Registry(), signer, clusterDialer, conf, srvConf, srv, registrar, metricsProvider, clusterMetrics, bccsp)
-
-	consenters["BFT"] = bdls.New(dpmr.Registry(), signer, clusterDialer, conf, srvConf, srv, registrar, metricsProvider, clusterMetrics, bccsp)
+	consenters["BFT"] = smartbft.New(dpmr.Registry(), signer, clusterDialer, conf, srvConf, srv, registrar, metricsProvider, clusterMetrics, bccsp)
 
 	registrar.Initialize(consenters)
 	return registrar
@@ -667,6 +677,7 @@ func newAdminServer(admin localconfig.Admin) *fabhttp.Server {
 			KeyFile:            admin.TLS.PrivateKey,
 			ClientCertRequired: admin.TLS.ClientAuthRequired,
 			ClientCACertFiles:  admin.TLS.ClientRootCAs,
+			TimeShift:          admin.TLS.TLSHandshakeTimeShift,
 		},
 	})
 }
@@ -809,7 +820,7 @@ func (mgr *caManager) updateClusterDialer(
 	clusterDialer.UpdateRootCAs(clusterRootCAsBytes)
 }
 
-func prettyPrintStruct(i interface{}) {
+func prettyPrintStruct(i any) {
 	params := localconfig.Flatten(i)
 	var buffer bytes.Buffer
 	for i := range params {

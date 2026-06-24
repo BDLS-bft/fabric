@@ -7,14 +7,14 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
-	"github.com/SmartBFT-Go/consensus/pkg/types"
-	cb "github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger-labs/SmartBFT/pkg/types"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/protoutil"
 )
 
-//go:generate mockery -dir . -name SignerSerializer -case underscore -output ./mocks/
+//go:generate mockery --dir . --name SignerSerializer --case underscore --with-expecter=true --output mocks
 
 // SignerSerializer signs messages and serializes identities
 type SignerSerializer interface {
@@ -47,7 +47,7 @@ func (s *Signer) SignProposal(proposal types.Proposal, _ []byte) *types.Signatur
 
 	nonce := randomNonceOrPanic()
 
-	sig := Signature{
+	sig := &Signature{
 		BlockHeader:      protoutil.BlockHeaderBytes(block.Header),
 		IdentifierHeader: protoutil.MarshalOrPanic(s.newIdentifierHeaderOrPanic(nonce)),
 		OrdererBlockMetadata: protoutil.MarshalOrPanic(&cb.OrdererBlockMetadata{
@@ -65,7 +65,7 @@ func (s *Signer) SignProposal(proposal types.Proposal, _ []byte) *types.Signatur
 	}
 }
 
-// NewSignatureHeader creates a SignatureHeader with the correct signing identity and a valid nonce
+// newIdentifierHeaderOrPanic creates an IdentifierHeader with the signer's identifier and a valid nonce
 func (s *Signer) newIdentifierHeaderOrPanic(nonce []byte) *cb.IdentifierHeader {
 	return &cb.IdentifierHeader{
 		Identifier: uint32(s.ID),

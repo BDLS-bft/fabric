@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
-	mb "github.com/hyperledger/fabric-protos-go/msp"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset/kvrwset"
+	mb "github.com/hyperledger/fabric-protos-go-apiv2/msp"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	ctxt "github.com/hyperledger/fabric/common/configtx/test"
 	commonerrors "github.com/hyperledger/fabric/common/errors"
 	ledger2 "github.com/hyperledger/fabric/common/ledger"
@@ -652,7 +652,7 @@ func TestParallelValidation(t *testing.T) {
 		SerializedID: []byte("signer1"),
 		MspID:        "Org2",
 	}
-	for txNum := 0; txNum < txCnt; txNum++ {
+	for txNum := range txCnt {
 		var sig msp.SigningIdentity
 		// create rwset for the tx - KVS key depends on the txnum
 		key := strconv.Itoa(txNum % 10)

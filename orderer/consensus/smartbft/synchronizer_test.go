@@ -10,11 +10,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/SmartBFT-Go/consensus/pkg/types"
-	"github.com/SmartBFT-Go/consensus/smartbftprotos"
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger-labs/SmartBFT/pkg/types"
+	"github.com/hyperledger-labs/SmartBFT/smartbftprotos"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric/internal/pkg/comm"
+	"github.com/hyperledger/fabric/orderer/common/cluster"
+	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	mocks2 "github.com/hyperledger/fabric/orderer/consensus/mocks"
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft/mocks"
@@ -22,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 func noopUpdateLastHash(_ *cb.Block) types.Reconfig { return types.Reconfig{} }
@@ -47,6 +50,9 @@ func TestSynchronizerSync(t *testing.T) {
 
 	t.Run("no remotes", func(t *testing.T) {
 		bp := &mocks.FakeBlockPuller{}
+		bpf := &mocks.FakeBlockPullerFactory{}
+		bpf.CreateBlockPullerReturns(bp, nil)
+
 		fakeCS := &mocks2.FakeConsenterSupport{}
 		fakeCS.ChannelIDReturns("mychannel")
 		fakeCS.HeightReturns(100)
@@ -68,11 +74,12 @@ func TestSynchronizerSync(t *testing.T) {
 				}
 				return nil
 			},
-			Logger:      l,
-			BlockPuller: bp,
-			ClusterSize: 4,
-			Support:     fakeCS,
-			OnCommit:    noopUpdateLastHash,
+			Logger:             l,
+			ClusterDialer:      &cluster.PredicateDialer{Config: comm.ClientConfig{}},
+			LocalConfigCluster: localconfig.Cluster{},
+			BlockPullerFactory: bpf,
+			Support:            fakeCS,
+			OnCommit:           noopUpdateLastHash,
 		}
 
 		d := syn.Sync()
@@ -88,11 +95,13 @@ func TestSynchronizerSync(t *testing.T) {
 				"example.com:3": 103,
 				"example.com:4": 200, // byzantine, lying
 			},
-			nil,
+			"", nil,
 		)
 		bp.PullBlockReturnsOnCall(0, b100)
 		bp.PullBlockReturnsOnCall(1, b101)
 		bp.PullBlockReturnsOnCall(2, b102)
+		bpf := &mocks.FakeBlockPullerFactory{}
+		bpf.CreateBlockPullerReturns(bp, nil)
 
 		height := uint64(100)
 		ledger := map[uint64]*cb.Block{99: b99}
@@ -112,6 +121,11 @@ func TestSynchronizerSync(t *testing.T) {
 		fakeCS.BlockCalls(func(sqn uint64) *cb.Block {
 			return ledger[sqn]
 		})
+		fakeOrdererConfig := &mocks.OrdererConfig{}
+		fakeOrdererConfig.ConsentersReturns([]*cb.Consenter{
+			{Id: 1}, {Id: 2}, {Id: 3}, {Id: 4},
+		})
+		fakeCS.SharedConfigReturns(fakeOrdererConfig)
 
 		decision := &types.SyncResponse{
 			Latest: types.Decision{},
@@ -123,11 +137,12 @@ func TestSynchronizerSync(t *testing.T) {
 				}
 				return nil
 			},
-			Logger:      flogging.NewFabricLogger(zap.NewExample()),
-			BlockPuller: bp,
-			ClusterSize: 4,
-			Support:     fakeCS,
-			OnCommit:    noopUpdateLastHash,
+			Logger:             flogging.NewFabricLogger(zap.NewExample()),
+			ClusterDialer:      &cluster.PredicateDialer{Config: comm.ClientConfig{}},
+			LocalConfigCluster: localconfig.Cluster{},
+			BlockPullerFactory: bpf,
+			Support:            fakeCS,
+			OnCommit:           noopUpdateLastHash,
 		}
 
 		d := syn.Sync()
@@ -142,11 +157,13 @@ func TestSynchronizerSync(t *testing.T) {
 				"example.com:2": 102,
 				"example.com:4": 200, // byzantine, lying
 			},
-			nil,
+			"", nil,
 		)
 		bp.PullBlockReturnsOnCall(0, b100)
 		bp.PullBlockReturnsOnCall(1, b101)
 		bp.PullBlockReturnsOnCall(2, b102)
+		bpf := &mocks.FakeBlockPullerFactory{}
+		bpf.CreateBlockPullerReturns(bp, nil)
 
 		height := uint64(100)
 		ledger := map[uint64]*cb.Block{99: b99}
@@ -166,6 +183,11 @@ func TestSynchronizerSync(t *testing.T) {
 		fakeCS.BlockCalls(func(sqn uint64) *cb.Block {
 			return ledger[sqn]
 		})
+		fakeOrdererConfig := &mocks.OrdererConfig{}
+		fakeOrdererConfig.ConsentersReturns([]*cb.Consenter{
+			{Id: 1}, {Id: 2}, {Id: 3}, {Id: 4},
+		})
+		fakeCS.SharedConfigReturns(fakeOrdererConfig)
 
 		decision := &types.SyncResponse{
 			Latest: types.Decision{},
@@ -177,11 +199,12 @@ func TestSynchronizerSync(t *testing.T) {
 				}
 				return nil
 			},
-			Logger:      flogging.NewFabricLogger(zap.NewExample()),
-			BlockPuller: bp,
-			ClusterSize: 4,
-			Support:     fakeCS,
-			OnCommit:    noopUpdateLastHash,
+			Logger:             flogging.NewFabricLogger(zap.NewExample()),
+			ClusterDialer:      &cluster.PredicateDialer{Config: comm.ClientConfig{}},
+			LocalConfigCluster: localconfig.Cluster{},
+			BlockPullerFactory: bpf,
+			Support:            fakeCS,
+			OnCommit:           noopUpdateLastHash,
 		}
 
 		d := syn.Sync()
@@ -195,11 +218,13 @@ func TestSynchronizerSync(t *testing.T) {
 				"example.com:1": 101,
 				"example.com:4": 200, // byzantine, lying
 			},
-			nil,
+			"", nil,
 		)
 		bp.PullBlockReturnsOnCall(0, b100)
 		bp.PullBlockReturnsOnCall(1, b101)
 		bp.PullBlockReturnsOnCall(2, b102)
+		bpf := &mocks.FakeBlockPullerFactory{}
+		bpf.CreateBlockPullerReturns(bp, nil)
 
 		height := uint64(100)
 		ledger := map[uint64]*cb.Block{99: b99}
@@ -219,6 +244,11 @@ func TestSynchronizerSync(t *testing.T) {
 		fakeCS.BlockCalls(func(sqn uint64) *cb.Block {
 			return ledger[sqn]
 		})
+		fakeOrdererConfig := &mocks.OrdererConfig{}
+		fakeOrdererConfig.ConsentersReturns([]*cb.Consenter{
+			{Id: 1}, {Id: 2}, {Id: 3}, {Id: 4},
+		})
+		fakeCS.SharedConfigReturns(fakeOrdererConfig)
 
 		decision := &types.SyncResponse{
 			Latest: types.Decision{},
@@ -230,11 +260,12 @@ func TestSynchronizerSync(t *testing.T) {
 				}
 				return nil
 			},
-			Logger:      flogging.NewFabricLogger(zap.NewExample()),
-			BlockPuller: bp,
-			ClusterSize: 4,
-			Support:     fakeCS,
-			OnCommit:    noopUpdateLastHash,
+			Logger:             flogging.NewFabricLogger(zap.NewExample()),
+			ClusterDialer:      &cluster.PredicateDialer{Config: comm.ClientConfig{}},
+			LocalConfigCluster: localconfig.Cluster{},
+			BlockPullerFactory: bpf,
+			Support:            fakeCS,
+			OnCommit:           noopUpdateLastHash,
 		}
 
 		d := syn.Sync()
@@ -247,11 +278,13 @@ func TestSynchronizerSync(t *testing.T) {
 			map[string]uint64{
 				"example.com:1": 100,
 			},
-			nil,
+			"", nil,
 		)
 		bp.PullBlockReturnsOnCall(0, b100)
 		bp.PullBlockReturnsOnCall(1, b101)
 		bp.PullBlockReturnsOnCall(2, b102)
+		bpf := &mocks.FakeBlockPullerFactory{}
+		bpf.CreateBlockPullerReturns(bp, nil)
 
 		height := uint64(100)
 		ledger := map[uint64]*cb.Block{99: b99}
@@ -271,6 +304,11 @@ func TestSynchronizerSync(t *testing.T) {
 		fakeCS.BlockCalls(func(sqn uint64) *cb.Block {
 			return ledger[sqn]
 		})
+		fakeOrdererConfig := &mocks.OrdererConfig{}
+		fakeOrdererConfig.ConsentersReturns([]*cb.Consenter{
+			{Id: 1}, {Id: 2}, {Id: 3}, {Id: 4},
+		})
+		fakeCS.SharedConfigReturns(fakeOrdererConfig)
 
 		decision := &types.SyncResponse{
 			Latest: types.Decision{},
@@ -285,11 +323,12 @@ func TestSynchronizerSync(t *testing.T) {
 				}
 				return nil
 			},
-			Logger:      flogging.NewFabricLogger(zap.NewExample()),
-			BlockPuller: bp,
-			ClusterSize: 4,
-			Support:     fakeCS,
-			OnCommit:    noopUpdateLastHash,
+			Logger:             flogging.NewFabricLogger(zap.NewExample()),
+			ClusterDialer:      &cluster.PredicateDialer{Config: comm.ClientConfig{}},
+			LocalConfigCluster: localconfig.Cluster{},
+			BlockPullerFactory: bpf,
+			Support:            fakeCS,
+			OnCommit:           noopUpdateLastHash,
 		}
 
 		d := syn.Sync()
@@ -308,7 +347,7 @@ func makeBlockWithMetadata(sqnNum, lastConfigIndex uint64, viewMetadata *smartbf
 		Value: protoutil.MarshalOrPanic(&cb.OrdererBlockMetadata{
 			ConsenterMetadata: protoutil.MarshalOrPanic(viewMetadata),
 			LastConfig: &cb.LastConfig{
-				Index: sqnNum,
+				Index: lastConfigIndex,
 			},
 		}),
 	})

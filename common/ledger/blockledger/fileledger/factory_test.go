@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
 	"github.com/hyperledger/fabric/common/ledger/blockledger/fileledger/mock"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
 	"github.com/hyperledger/fabric/orderer/common/filerepo"
 	"github.com/stretchr/testify/require"
 )
@@ -163,7 +163,7 @@ func TestNewErrors(t *testing.T) {
 		})
 
 		_, err = New(dir, metricsProvider)
-		require.EqualError(t, err, fmt.Sprintf("error checking if dir [%s] is empty: lstat %s: permission denied", fileRepoDir, removeFile))
+		require.EqualError(t, err, fmt.Sprintf("error checking if dir [%s] is empty: fstatat %s: permission denied", fileRepoDir, fileRepoDir))
 	})
 
 	t.Run("removal fails", func(t *testing.T) {

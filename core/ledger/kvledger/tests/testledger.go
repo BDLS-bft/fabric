@@ -33,7 +33,7 @@ type testLedger struct {
 	t *testing.T
 }
 
-// createTestLedgerFromGenesisBlk creates a new ledger and retruns a 'testhelper' for the ledger
+// createTestLedgerFromGenesisBlk creates a new ledger and returns a 'testhelper' for the ledger
 func (env *env) createTestLedgerFromGenesisBlk(id string) *testLedger {
 	t := env.t
 	genesisBlk, err := constructTestGenesisBlock(id)
@@ -87,7 +87,7 @@ func (env *env) createTestLedgerFromSnapshot(snapshotDir string) *testLedger {
 	}
 }
 
-// openTestLedger opens an existing ledger and retruns a 'testhelper' for the ledger
+// openTestLedger opens an existing ledger and returns a 'testhelper' for the ledger
 func (env *env) openTestLedger(id string) *testLedger {
 	t := env.t
 	lgr, err := env.ledgerMgr.OpenLedger(id)
@@ -130,7 +130,8 @@ func (l *testLedger) generateSnapshot() string {
 	require.NoError(l.t, err)
 	blockNum := bcInfo.Height - 1
 	require.NoError(l.t, l.lgr.SubmitSnapshotRequest(blockNum))
-	require.Eventually(l.t,
+	require.Eventually(
+		l.t,
 		func() bool {
 			requests, err := l.lgr.PendingSnapshotRequests()
 			require.NoError(l.t, err)

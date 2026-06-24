@@ -83,7 +83,7 @@ func (l *kvLedger) PendingSnapshotRequests() ([]uint64, error) {
 	return l.snapshotMgr.snapshotRequestBookkeeper.list()
 }
 
-// processSnapshotMgmtEvents handles each event in the events channel and performs synchronization acorss
+// processSnapshotMgmtEvents handles each event in the events channel and performs synchronization across
 // block commits, snapshot generation, and snapshot request submission/cancellation.
 // It should be started in a separate goroutine when the ledger is created/opened.
 // There are 3 unbuffered channels and 5 events working together to process events one by one
@@ -111,7 +111,8 @@ func (l *kvLedger) processSnapshotMgmtEvents(lastCommittedBlockNumber uint64) {
 
 	for {
 		e := <-events
-		logger.Debugw("Event received",
+		logger.Debugw(
+			"Event received",
 			"channelID", l.ledgerID, "event", e, "snapshotInProgress", snapshotInProgress,
 			"lastCommittedBlockNumber", lastCommittedBlockNumber, "committerStatus", committerStatus,
 		)

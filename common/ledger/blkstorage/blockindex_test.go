@@ -12,13 +12,14 @@ import (
 	"hash"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/ledger/snapshot"
 	"github.com/hyperledger/fabric/common/ledger/testutil"
 	commonledgerutil "github.com/hyperledger/fabric/common/ledger/util"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
 	"github.com/hyperledger/fabric/internal/pkg/txflags"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/require"
@@ -57,7 +58,7 @@ func testBlockIndexSync(t *testing.T, numBlocks int, numBlocksToIndex int, syncB
 		// Plug-in back the original index store
 		blkfileMgr.index.db = originalIndexStore
 		// Verify that the first set of blocks are indexed in the original index
-		for i := 0; i < numBlocksToIndex; i++ {
+		for i := range numBlocksToIndex {
 			block, err := blkfileMgr.retrieveBlockByNumber(uint64(i))
 			require.NoError(t, err, "block [%d] should have been present in the index", i)
 			require.Equal(t, blocks[i], block)
@@ -204,12 +205,7 @@ func testBlockIndexSelectiveIndexing(t *testing.T, indexItems []IndexableAttr) {
 }
 
 func containsAttr(indexItems []IndexableAttr, attr IndexableAttr) bool {
-	for _, element := range indexItems {
-		if element == attr {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(indexItems, attr)
 }
 
 func TestTxIDKeyEncodingDecoding(t *testing.T) {
@@ -230,7 +226,8 @@ func TestTxIDKeyEncodingDecoding(t *testing.T) {
 				txID, err := retrieveTxID(encodedTxIDKey)
 				require.NoError(t, err)
 				require.Equal(t, testcase.txid, txID)
-				verifyTxIDKeyDecodable(t,
+				verifyTxIDKeyDecodable(
+					t,
 					encodedTxIDKey,
 					testcase.txid, testcase.blkNum, testcase.txNum,
 				)
@@ -420,7 +417,7 @@ func verifyExportedTxIDs(t *testing.T, dir string, fileHashes map[string][]byte,
 	numTxIDs, err := metadataReader.DecodeUVarInt()
 	require.NoError(t, err)
 	retrievedTxIDs := []string{}
-	for i := uint64(0); i < numTxIDs; i++ {
+	for range numTxIDs {
 		txID, err := dataReader.DecodeString()
 		require.NoError(t, err)
 		retrievedTxIDs = append(retrievedTxIDs, txID)

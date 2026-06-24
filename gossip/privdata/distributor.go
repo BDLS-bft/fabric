@@ -8,17 +8,17 @@ package privdata
 
 import (
 	"bytes"
+	crand "crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	protosgossip "github.com/hyperledger/fabric-protos-go/gossip"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric-protos-go/transientstore"
+	protosgossip "github.com/hyperledger/fabric-protos-go-apiv2/gossip"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/transientstore"
 	"github.com/hyperledger/fabric/core/common/privdata"
 	"github.com/hyperledger/fabric/gossip/api"
 	gossipCommon "github.com/hyperledger/fabric/gossip/common"
@@ -31,6 +31,7 @@ import (
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 // gossipAdapter an adapter for API's required from gossip module
@@ -125,7 +126,8 @@ func NewCollectionAccessFactory(factory IdentityDeserializerFactory) CollectionA
 // NewDistributor a constructor for private data distributor capable to send
 // private read write sets for underlying collection
 func NewDistributor(chainID string, gossip gossipAdapter, factory CollectionAccessFactory,
-	metrics *metrics.PrivdataMetrics, pushAckTimeout time.Duration) PvtDataDistributor {
+	metrics *metrics.PrivdataMetrics, pushAckTimeout time.Duration,
+) PvtDataDistributor {
 	return &distributorImpl{
 		chainID:                 chainID,
 		gossipAdapter:           gossip,
@@ -152,7 +154,8 @@ type dissemination struct {
 
 func (d *distributorImpl) computeDisseminationPlan(txID string,
 	privDataWithConfig *transientstore.TxPvtReadWriteSetWithConfigInfo,
-	blkHt uint64) ([]*dissemination, error) {
+	blkHt uint64,
+) ([]*dissemination, error) {
 	privData := privDataWithConfig.PvtRwset
 	var disseminationPlan []*dissemination
 	for _, pvtRwset := range privData.NsPvtRwset {
@@ -231,7 +234,7 @@ func (d *distributorImpl) disseminationPlanForMsg(colAP privdata.CollectionAcces
 
 	// With the shift to per peer dissemination in FAB-15389, we must first check
 	// that there are enough eligible peers to satisfy RequiredPeerCount.
-	if (len(eligiblePeers)) < colAP.RequiredPeerCount() {
+	if len(eligiblePeers) < colAP.RequiredPeerCount() {
 		return nil, errors.Errorf("required to disseminate to at least %d peers, but know of only %d eligible peers", colAP.RequiredPeerCount(), len(eligiblePeers))
 	}
 
@@ -256,7 +259,9 @@ func (d *distributorImpl) disseminationPlanForMsg(colAP privdata.CollectionAcces
 	remainingPeersAcrossOrgs := []api.PeerIdentityInfo{}
 	selectedPeerEndpointsForDebug := []string{}
 
-	r := rand.New(rand.NewSource(time.Now().Unix()))
+	var seed [32]byte
+	_, _ = crand.Read(seed[:])
+	r := rand.New(rand.NewChaCha8(seed))
 
 	// PHASE 1 - Select one peer from each eligible org
 	if maximumPeerRemainingCount > 0 {
@@ -269,7 +274,7 @@ func (d *distributorImpl) disseminationPlanForMsg(colAP privdata.CollectionAcces
 				acksRequired = 0
 			}
 
-			selectedPeerIndex := r.Intn(len(selectionPeersForOrg))
+			selectedPeerIndex := r.IntN(len(selectionPeersForOrg))
 			peer2SendPerOrg := selectionPeersForOrg[selectedPeerIndex]
 			selectedPeerEndpointsForDebug = append(selectedPeerEndpointsForDebug, peerEndpoints[string(peer2SendPerOrg.PKIId)])
 			sc := gossipgossip.SendCriteria{
@@ -310,10 +315,7 @@ func (d *distributorImpl) disseminationPlanForMsg(colAP privdata.CollectionAcces
 	}
 
 	// PHASE 2 - Select additional peers to satisfy colAP.MaximumPeerCount() if there are still peers in the remainingPeersAcrossOrgs pool
-	numRemainingPeersToSelect := maximumPeerRemainingCount
-	if len(remainingPeersAcrossOrgs) < maximumPeerRemainingCount {
-		numRemainingPeersToSelect = len(remainingPeersAcrossOrgs)
-	}
+	numRemainingPeersToSelect := min(len(remainingPeersAcrossOrgs), maximumPeerRemainingCount)
 	if numRemainingPeersToSelect > 0 {
 		d.logger.Debugf("MaximumPeerCount not yet satisfied after picking one peer per org, selecting %d more peer(s) for dissemination", numRemainingPeersToSelect)
 	}
@@ -322,7 +324,7 @@ func (d *distributorImpl) disseminationPlanForMsg(colAP privdata.CollectionAcces
 		if requiredPeerRemainingCount == 0 {
 			required = 0
 		}
-		selectedPeerIndex := r.Intn(len(remainingPeersAcrossOrgs))
+		selectedPeerIndex := r.IntN(len(remainingPeersAcrossOrgs))
 		peer2Send := remainingPeersAcrossOrgs[selectedPeerIndex]
 		selectedPeerEndpointsForDebug = append(selectedPeerEndpointsForDebug, peerEndpoints[string(peer2Send.PKIId)])
 		sc := gossipgossip.SendCriteria{
@@ -417,7 +419,8 @@ func (d *distributorImpl) reportSendDuration(startTime time.Time) {
 func (d *distributorImpl) createPrivateDataMessage(txID, namespace string,
 	collection *rwset.CollectionPvtReadWriteSet,
 	ccp *peer.CollectionConfigPackage,
-	blkHt uint64) (*protoext.SignedGossipMessage, error) {
+	blkHt uint64,
+) (*protoext.SignedGossipMessage, error) {
 	msg := &protosgossip.GossipMessage{
 		Channel: []byte(d.chainID),
 		Nonce:   util.RandomUInt64(),

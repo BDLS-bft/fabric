@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/hyperledger/fabric/core/config/configtest"
-	"github.com/mitchellh/mapstructure"
 	"github.com/stretchr/testify/require"
 )
 
@@ -165,6 +165,7 @@ func TestClusterDefaults(t *testing.T) {
 	cfg, err := cc.load()
 	require.NoError(t, err)
 	require.Equal(t, cfg.General.Cluster.ReplicationMaxRetries, Defaults.General.Cluster.ReplicationMaxRetries)
+	require.Equal(t, cfg.General.Cluster.ReplicationPolicy, Defaults.General.Cluster.ReplicationPolicy)
 }
 
 func TestConsensusConfig(t *testing.T) {
@@ -190,7 +191,7 @@ Consensus:
 	require.NotNil(t, conf, "Could not load config")
 
 	consensus := conf.Consensus
-	require.IsType(t, map[string]interface{}{}, consensus, "Expected Consensus to be of type map[string]interface{}")
+	require.IsType(t, map[string]any{}, consensus, "Expected Consensus to be of type map[string]interface{}")
 
 	foo := &struct {
 		Foo   string

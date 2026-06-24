@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"testing"
 
-	proto "github.com/hyperledger/fabric-protos-go/gossip"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric-protos-go/transientstore"
+	proto "github.com/hyperledger/fabric-protos-go-apiv2/gossip"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/transientstore"
 	"github.com/hyperledger/fabric/core/common/privdata"
 	"github.com/hyperledger/fabric/gossip/api"
 	gcommon "github.com/hyperledger/fabric/gossip/common"
@@ -30,7 +30,8 @@ import (
 )
 
 func Setup(mock *mocks2.CollectionAccessPolicy, requiredPeerCount int, maxPeerCount int,
-	accessFilter privdata.Filter, orgs map[string]struct{}, memberOnlyRead bool) {
+	accessFilter privdata.Filter, orgs map[string]struct{}, memberOnlyRead bool,
+) {
 	mock.On("AccessFilter").Return(accessFilter)
 	mock.On("RequiredPeerCount").Return(requiredPeerCount)
 	mock.On("MaximumPeerCount").Return(maxPeerCount)
@@ -233,7 +234,8 @@ func TestDistributor(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Failed disseminating 2 out of 2 private dissemination plans")
 
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", channelID},
 		testMetricProvider.FakeSendDuration.WithArgsForCall(0),
 	)

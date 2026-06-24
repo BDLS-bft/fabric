@@ -14,11 +14,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/msp"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/msp"
 	"github.com/hyperledger/fabric/gossip/common"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 // MessageCryptoService is the contract between the gossip component and the
@@ -138,7 +138,7 @@ func (pit PeerIdentityType) String() string {
 	if cert == nil {
 		return fmt.Sprintf("non x509 identity: %s", base64Representation)
 	}
-	m := make(map[string]interface{})
+	m := make(map[string]any)
 	m["MSP"] = sID.Mspid
 	s := cert.Subject
 	m["CN"] = s.CommonName

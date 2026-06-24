@@ -13,7 +13,7 @@ import "github.com/pkg/errors"
 // Deprecated: system channel no longer supported
 var ErrSystemChannelExists = errors.New("system channel exists")
 
-// ErrSystemChannelNotSupported  is returned when trying to join with a system channel config block.
+// ErrSystemChannelNotSupported is returned when trying to join with a system channel config block.
 var ErrSystemChannelNotSupported = errors.New("system channel not supported")
 
 // ErrChannelAlreadyExists is returned when trying to join a app channel that already exists (when the system channel does not
@@ -32,3 +32,6 @@ var ErrChannelPendingRemoval = errors.New("channel pending removal")
 
 // ErrChannelRemovalFailure is returned when a removal attempt failure has been recorded.
 var ErrChannelRemovalFailure = errors.New("channel removal failure")
+
+// ErrChannelNotReady is returned when trying to update a channel that is a follower
+var ErrChannelNotReady = errors.New("channel is not ready, he is a follower")

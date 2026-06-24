@@ -7,8 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package multichannel
 
 import (
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/orderer/common/blockcutter"
@@ -154,15 +154,16 @@ func (cs *ChainSupport) ProposeConfigUpdate(configtx *cb.Envelope) (*cb.ConfigEn
 		logger.Panic("old config is missing orderer group")
 	}
 
-	// we can remove this check since this is being validated in checkResources earlier
+	// this is being validated in checkResources(bundle) earlier, so here we just panic
 	newOrdererConfig, ok := bundle.OrdererConfig()
 	if !ok {
-		return nil, errors.New("new config is missing orderer group")
+		logger.Panic("new config is missing orderer group")
 	}
 
 	if err = cs.ValidateConsensusMetadata(oldOrdererConfig, newOrdererConfig, false); err != nil {
 		return nil, errors.WithMessage(err, "consensus metadata update for channel config update is invalid")
 	}
+
 	return env, nil
 }
 

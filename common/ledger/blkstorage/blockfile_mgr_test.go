@@ -11,13 +11,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/ledger/testutil"
 	"github.com/hyperledger/fabric/internal/pkg/txflags"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 func TestBlockfileMgrBlockReadWrite(t *testing.T) {
@@ -62,7 +62,8 @@ func TestBlockfileMgrCrashDuringWriting(t *testing.T) {
 
 func testBlockfileMgrCrashDuringWriting(t *testing.T, numBlksBeforeSavingBlkfilesInfo int,
 	numBlksAfterSavingBlkfilesInfo int, numLastBlockBytes int, numPartialBytesToWrite int,
-	deleteBFInfo bool) {
+	deleteBFInfo bool,
+) {
 	env := newTestEnv(t, NewConf(t.TempDir(), 0))
 	defer env.Cleanup()
 	ledgerid := "testLedger"
@@ -101,7 +102,7 @@ func testBlockfileMgrCrashDuringWriting(t *testing.T, numBlksBeforeSavingBlkfile
 
 	// simulate a crash scenario
 	lastBlockBytes := []byte{}
-	encodedLen := proto.EncodeVarint(uint64(numLastBlockBytes))
+	encodedLen := protowire.AppendVarint(nil, uint64(numLastBlockBytes))
 	randomBytes := testutil.ConstructRandomBytes(t, numLastBlockBytes)
 	lastBlockBytes = append(lastBlockBytes, encodedLen...)
 	lastBlockBytes = append(lastBlockBytes, randomBytes...)
@@ -137,7 +138,8 @@ func TestBlockfileMgrBlockIterator(t *testing.T) {
 }
 
 func testBlockfileMgrBlockIterator(t *testing.T, blockfileMgr *blockfileMgr,
-	firstBlockNum int, lastBlockNum int, expectedBlocks []*common.Block) {
+	firstBlockNum int, lastBlockNum int, expectedBlocks []*common.Block,
+) {
 	itr, err := blockfileMgr.retrieveBlocks(uint64(firstBlockNum))
 	require.NoError(t, err, "Error while getting blocks iterator")
 	defer itr.Close()
@@ -394,10 +396,9 @@ func TestBlockfileMgrFileRolling(t *testing.T) {
 	blocks := testutil.ConstructTestBlocks(t, 200)
 	size := 0
 	for _, block := range blocks[:100] {
-		by, _, err := serializeBlock(block)
-		require.NoError(t, err, "Error while serializing block")
+		by, _ := serializeBlock(block)
 		blockBytesSize := len(by)
-		encodedLen := proto.EncodeVarint(uint64(blockBytesSize))
+		encodedLen := protowire.AppendVarint(nil, uint64(blockBytesSize))
 		size += blockBytesSize + len(encodedLen)
 	}
 
@@ -456,7 +457,7 @@ func testBlockfileMgrSimulateCrashAtFirstBlockInFile(t *testing.T, deleteBlkfile
 	blkfileMgrWrapper := newTestBlockfileWrapper(env, "testLedger")
 	blockfileMgr := blkfileMgrWrapper.blockfileMgr
 	blocks := testutil.ConstructTestBlocks(t, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		fmt.Printf("blocks[i].Header.Number = %d\n", blocks[i].Header.Number)
 	}
 	blkfileMgrWrapper.addBlocks(blocks[:5])
@@ -466,7 +467,7 @@ func testBlockfileMgrSimulateCrashAtFirstBlockInFile(t *testing.T, deleteBlkfile
 	// move to next file and simulate crash scenario while writing the first block
 	blockfileMgr.moveToNextFile()
 	partialBytesForNextBlock := append(
-		proto.EncodeVarint(uint64(10000)),
+		protowire.AppendVarint(nil, uint64(10000)),
 		[]byte("partialBytesForNextBlock depicting a crash during first block in file")...,
 	)
 	blockfileMgr.currentFileWriter.append(partialBytesForNextBlock, true)
@@ -488,7 +489,8 @@ func testBlockfileMgrSimulateCrashAtFirstBlockInFile(t *testing.T, deleteBlkfile
 
 	// last block file (block file number 1) should have been truncated to zero length and concluded as the next file to append to
 	require.Equal(t, 0, testutilGetFileSize(t, lastFilePath))
-	require.Equal(t,
+	require.Equal(
+		t,
 		&blockfilesInfo{
 			latestFileNumber:   1,
 			latestFileSize:     0,

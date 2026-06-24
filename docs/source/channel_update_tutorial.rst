@@ -174,11 +174,9 @@ This Docker Compose file has been configured to bridge across our initial networ
 so that the Org3 peer resolves with the existing peers and ordering
 node of the test network.
 
-.. note:: the `./addOrg3.sh up` command uses a `fabric-tools` CLI container to perform
-          the channel configuration update process demonstrated below. This is to avoid the
-          `jq` dependency requirement for first-time users. However, it is recommended to
-          follow the process below directly on your local machine instead of using the unnecessary
-          CLI container.
+.. note:: the `./addOrg3.sh up` command uses a `jq` CLI to perform
+          the channel configuration update process demonstrated. It is recommended to
+          follow the process below directly on your local machine.
 
 Fetch the Configuration
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -539,14 +537,9 @@ a chaincode on the channel. If the existing channel members have already committ
 a chaincode definition to the channel, a new organization can start using the
 chaincode by approving the chaincode definition.
 
-.. note:: These instructions use the Fabric chaincode lifecycle introduced in
-          the v2.0 release. If you would like to use the previous lifecycle to
-          install and instantiate a chaincode, visit the v1.4 version of the
-          `Adding an org to a channel tutorial <https://hyperledger-fabric.readthedocs.io/en/release-1.4/channel_update_tutorial.html>`__.
-
 Before we install a chaincode as Org3, we can use the ``./network.sh`` script to
 deploy the Basic chaincode on the channel. Open a new terminal and navigate to the ``test-network`` directory. You can then use
-use the ``test-network`` script to deploy the Basic chaincode:
+the ``test-network`` script to deploy the Basic chaincode:
 
 .. code:: bash
 
@@ -579,7 +572,7 @@ The first step is to package the Basic chaincode:
 
 .. code:: bash
 
-    peer lifecycle chaincode package basic.tar.gz --path ../asset-transfer-basic/chaincode-go/ --lang golang --label basic_1
+    peer lifecycle chaincode package basic.tar.gz --path ../asset-transfer-basic/chaincode-go/ --lang golang --label basic_1.0
 
 This command will create a chaincode package named ``basic.tar.gz``, which we can
 install on the Org3 peer. Modify the command accordingly if the channel is running a
@@ -606,7 +599,7 @@ You should see output similar to the following:
 .. code:: bash
 
       Get installed chaincodes on peer:
-      Package ID: basic_1:5443b5b557efd3faece8723883d28d6f7026c0bf12245de109b89c5c4fe64887, Label: basic_1
+      Package ID: basic_1.0:c6a45e2d5563c883869149c3dbd941c22fbe27daa21f0552834f5a53fbb8058a, Label: basic_1.0
 
 We are going to need the package ID in a future command, so lets go ahead and
 save it as an environment variable. Paste the package ID returned by the
@@ -616,7 +609,7 @@ using the package ID returned from your console.
 
 .. code:: bash
 
-   export CC_PACKAGE_ID=basic_1:5443b5b557efd3faece8723883d28d6f7026c0bf12245de109b89c5c4fe64887
+   export CC_PACKAGE_ID=basic_1.0:c6a45e2d5563c883869149c3dbd941c22fbe27daa21f0552834f5a53fbb8058a
 
 Use the following command to approve a definition of the basic chaincode
 for Org3:

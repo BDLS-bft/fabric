@@ -14,13 +14,12 @@ import (
 	"syscall"
 	"time"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-config/configtx"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/ordererclient"
+	. "github.com/hyperledger/fabric/internal/test"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/tedsuo/ifrit"
@@ -29,7 +28,7 @@ import (
 
 var _ = Describe("ConfigTx", func() {
 	var (
-		client                      *docker.Client
+		client                      dcli.APIClient
 		testDir                     string
 		network                     *nwo.Network
 		ordererRunner               *ginkgomon.Runner
@@ -41,7 +40,7 @@ var _ = Describe("ConfigTx", func() {
 		testDir, err = os.MkdirTemp("", "configtx")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		config := nwo.BasicEtcdRaft()
@@ -83,7 +82,7 @@ var _ = Describe("ConfigTx", func() {
 		orderer := network.Orderer("orderer")
 
 		By("joining all peers to the channel")
-		channelparticipation.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
+		nwo.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
 
 		By("getting the current channel config")
 		org2peer0 := network.Peer("Org2", "peer0")
@@ -132,7 +131,7 @@ var _ = Describe("ConfigTx", func() {
 
 		By("ensuring the active channel config matches the submitted config")
 		updatedChannelConfig := nwo.GetConfig(network, org2peer0, orderer, "testchannel")
-		Expect(proto.Equal(c.UpdatedConfig(), updatedChannelConfig)).To(BeTrue())
+		Expect(c.UpdatedConfig()).To(ProtoEqual(updatedChannelConfig))
 
 		By("checking the current application capabilities")
 		c = configtx.New(updatedChannelConfig)
@@ -190,7 +189,7 @@ var _ = Describe("ConfigTx", func() {
 
 		By("ensuring the active channel config matches the submitted config")
 		updatedChannelConfig = nwo.GetConfig(network, org2peer0, orderer, "testchannel")
-		Expect(proto.Equal(c.UpdatedConfig(), updatedChannelConfig)).To(BeTrue())
+		Expect(c.UpdatedConfig()).To(ProtoEqual(updatedChannelConfig))
 
 		By("adding the anchor peer for each org")
 		for _, peer := range testPeers {
@@ -235,7 +234,7 @@ var _ = Describe("ConfigTx", func() {
 
 			By("ensuring the active channel config matches the submitted config")
 			updatedChannelConfig = nwo.GetConfig(network, peer, orderer, "testchannel")
-			Expect(proto.Equal(c.UpdatedConfig(), updatedChannelConfig)).To(BeTrue())
+			Expect(c.UpdatedConfig()).To(ProtoEqual(updatedChannelConfig))
 		}
 	})
 })

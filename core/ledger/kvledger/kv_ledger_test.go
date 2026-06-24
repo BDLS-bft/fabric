@@ -10,13 +10,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/ledger/queryresult"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/queryresult"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset/kvrwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/ledger/testutil"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/ledger"
@@ -29,6 +28,7 @@ import (
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -74,9 +74,9 @@ func TestKVLedgerBlockStorage(t *testing.T) {
 		defer lgr.Close()
 
 		bcInfo, _ := lgr.GetBlockchainInfo()
-		require.Equal(t, &common.BlockchainInfo{
+		require.True(t, proto.Equal(&common.BlockchainInfo{
 			Height: 1, CurrentBlockHash: gbHash, PreviousBlockHash: nil,
-		}, bcInfo)
+		}, bcInfo))
 
 		txid := util.GenerateUUID()
 		simulator, _ := lgr.NewTxSimulator(txid)
@@ -91,9 +91,9 @@ func TestKVLedgerBlockStorage(t *testing.T) {
 
 		bcInfo, _ = lgr.GetBlockchainInfo()
 		block1Hash := protoutil.BlockHeaderHash(block1.Header)
-		require.Equal(t, &common.BlockchainInfo{
+		require.True(t, proto.Equal(&common.BlockchainInfo{
 			Height: 2, CurrentBlockHash: block1Hash, PreviousBlockHash: gbHash,
-		}, bcInfo)
+		}, bcInfo))
 
 		txid = util.GenerateUUID()
 		simulator, _ = lgr.NewTxSimulator(txid)
@@ -108,9 +108,9 @@ func TestKVLedgerBlockStorage(t *testing.T) {
 
 		bcInfo, _ = lgr.GetBlockchainInfo()
 		block2Hash := protoutil.BlockHeaderHash(block2.Header)
-		require.Equal(t, &common.BlockchainInfo{
+		require.True(t, proto.Equal(&common.BlockchainInfo{
 			Height: 3, CurrentBlockHash: block2Hash, PreviousBlockHash: block1Hash,
-		}, bcInfo)
+		}, bcInfo))
 
 		b0, _ := lgr.GetBlockByHash(gbHash)
 		require.True(t, proto.Equal(b0, gb), "proto messages are not equal")
@@ -122,7 +122,7 @@ func TestKVLedgerBlockStorage(t *testing.T) {
 		require.True(t, proto.Equal(b0, gb), "proto messages are not equal")
 
 		b1, _ = lgr.GetBlockByNumber(1)
-		require.Equal(t, block1, b1)
+		require.True(t, proto.Equal(block1, b1))
 
 		// get the tran id from the 2nd block, then use it to test GetTransactionByID()
 		txEnvBytes2 := block1.Data.Data[0]
@@ -142,7 +142,7 @@ func TestKVLedgerBlockStorage(t *testing.T) {
 		require.NoError(t, err, "Error upon GetTransactionByID")
 		// get the tran envelope from the retrieved ProcessedTransaction
 		retrievedTxEnv2 := processedTran2.TransactionEnvelope
-		require.Equal(t, txEnv2, retrievedTxEnv2)
+		require.True(t, proto.Equal(txEnv2, retrievedTxEnv2))
 
 		//  get the tran id from the 2nd block, then use it to test GetBlockByTxID
 		b1, _ = lgr.GetBlockByTxID(txID2)
@@ -315,7 +315,8 @@ func TestKVLedgerDBRecovery(t *testing.T) {
 	defer ledger1.Close()
 
 	gbHash := protoutil.BlockHeaderHash(gb.Header)
-	checkBCSummaryForTest(t, ledger1,
+	checkBCSummaryForTest(
+		t, ledger1,
 		&bcSummary{
 			bcInfo: &common.BlockchainInfo{Height: 1, CurrentBlockHash: gbHash, PreviousBlockHash: nil},
 		},
@@ -326,7 +327,8 @@ func TestKVLedgerDBRecovery(t *testing.T) {
 		map[string]string{"key1": "value1.1", "key2": "value2.1", "key3": "value3.1"},
 		map[string]string{"key1": "pvtValue1.1", "key2": "pvtValue2.1", "key3": "pvtValue3.1"})
 	require.NoError(t, ledger1.CommitLegacy(blockAndPvtdata1, &ledger.CommitOptions{}))
-	checkBCSummaryForTest(t, ledger1,
+	checkBCSummaryForTest(
+		t, ledger1,
 		&bcSummary{
 			bcInfo: &common.BlockchainInfo{
 				Height:            2,
@@ -349,7 +351,8 @@ func TestKVLedgerDBRecovery(t *testing.T) {
 	require.NoError(t, ledger1.(*kvLedger).commitToPvtAndBlockStore(blockAndPvtdata2, nil))
 
 	// block storage should be as of block-2 but the state and history db should be as of block-1
-	checkBCSummaryForTest(t, ledger1,
+	checkBCSummaryForTest(
+		t, ledger1,
 		&bcSummary{
 			bcInfo: &common.BlockchainInfo{
 				Height:            3,
@@ -381,7 +384,8 @@ func TestKVLedgerDBRecovery(t *testing.T) {
 	ledger2, err := provider2.Open(testLedgerid)
 	require.NoError(t, err)
 	defer ledger2.Close()
-	checkBCSummaryForTest(t, ledger2,
+	checkBCSummaryForTest(
+		t, ledger2,
 		&bcSummary{
 			stateDBSavePoint: uint64(2),
 			stateDBKVs:       map[string]string{"key1": "value1.2", "key2": "value2.2", "key3": "value3.2"},
@@ -397,7 +401,8 @@ func TestKVLedgerDBRecovery(t *testing.T) {
 	// SCENARIO 2: peer fails after committing the third block to the block storage and state DB
 	// but before committing to history DB
 	// ======================================================================================
-	blockAndPvtdata3 := prepareNextBlockForTest(t, ledger2, bg, "SimulateForBlk3",
+	blockAndPvtdata3 := prepareNextBlockForTest(
+		t, ledger2, bg, "SimulateForBlk3",
 		map[string]string{"key1": "value1.3", "key2": "value2.3", "key3": "value3.3"},
 		map[string]string{"key1": "pvtValue1.3", "key2": "pvtValue2.3", "key3": "pvtValue3.3"},
 	)
@@ -408,7 +413,8 @@ func TestKVLedgerDBRecovery(t *testing.T) {
 	require.NoError(t, ledger2.(*kvLedger).txmgr.Commit())
 
 	// assume that peer fails here after committing the transaction to state DB but before history DB
-	checkBCSummaryForTest(t, ledger2,
+	checkBCSummaryForTest(
+		t, ledger2,
 		&bcSummary{
 			bcInfo: &common.BlockchainInfo{
 				Height:            4,
@@ -440,7 +446,8 @@ func TestKVLedgerDBRecovery(t *testing.T) {
 	require.NoError(t, err)
 	defer ledger3.Close()
 
-	checkBCSummaryForTest(t, ledger3,
+	checkBCSummaryForTest(
+		t, ledger3,
 		&bcSummary{
 			stateDBSavePoint: uint64(3),
 			stateDBKVs:       map[string]string{"key1": "value1.3", "key2": "value2.3", "key3": "value3.3"},
@@ -457,7 +464,8 @@ func TestKVLedgerDBRecovery(t *testing.T) {
 	// SCENARIO 3: peer fails after committing the fourth block to the block storgae
 	// and history DB but before committing to state DB
 	// ======================================================================================
-	blockAndPvtdata4 := prepareNextBlockForTest(t, ledger3, bg, "SimulateForBlk4",
+	blockAndPvtdata4 := prepareNextBlockForTest(
+		t, ledger3, bg, "SimulateForBlk4",
 		map[string]string{"key1": "value1.4", "key2": "value2.4", "key3": "value3.4"},
 		map[string]string{"key1": "pvtValue1.4", "key2": "pvtValue2.4", "key3": "pvtValue3.4"},
 	)
@@ -467,7 +475,8 @@ func TestKVLedgerDBRecovery(t *testing.T) {
 	require.NoError(t, ledger3.(*kvLedger).commitToPvtAndBlockStore(blockAndPvtdata4, nil))
 	require.NoError(t, ledger3.(*kvLedger).historyDB.Commit(blockAndPvtdata4.Block))
 
-	checkBCSummaryForTest(t, ledger3,
+	checkBCSummaryForTest(
+		t, ledger3,
 		&bcSummary{
 			bcInfo: &common.BlockchainInfo{
 				Height:            5,
@@ -498,7 +507,8 @@ func TestKVLedgerDBRecovery(t *testing.T) {
 	ledger4, err := provider4.Open(testLedgerid)
 	require.NoError(t, err)
 	defer ledger4.Close()
-	checkBCSummaryForTest(t, ledger4,
+	checkBCSummaryForTest(
+		t, ledger4,
 		&bcSummary{
 			stateDBSavePoint: uint64(4),
 			stateDBKVs:       map[string]string{"key1": "value1.4", "key2": "value2.4", "key3": "value3.4"},
@@ -636,9 +646,9 @@ func TestPvtDataAPIs(t *testing.T) {
 	lgr.(*kvLedger).pvtdataStore.Init(btlPolicyForSampleData())
 
 	bcInfo, _ := lgr.GetBlockchainInfo()
-	require.Equal(t, &common.BlockchainInfo{
+	require.True(t, proto.Equal(&common.BlockchainInfo{
 		Height: 1, CurrentBlockHash: gbHash, PreviousBlockHash: nil,
-	}, bcInfo)
+	}, bcInfo))
 
 	kvlgr := lgr.(*kvLedger)
 
@@ -687,7 +697,7 @@ func TestPvtDataAPIs(t *testing.T) {
 	filter.Add("ns-1", "coll-1")
 	blockAndPvtdata, err = lgr.GetPvtDataAndBlockByNum(4, filter)
 	require.NoError(t, err)
-	require.Equal(t, sampleData[3].Block, blockAndPvtdata.Block)
+	require.True(t, proto.Equal(sampleData[3].Block, blockAndPvtdata.Block))
 	// two transactions should be present
 	require.Equal(t, 2, len(blockAndPvtdata.PvtData))
 	// both tran number 4 and 6 should have only one collection because of filter
@@ -1093,7 +1103,12 @@ func TestCollectionConfigHistoryRetriever(t *testing.T) {
 
 				actualOutput, err := r.MostRecentCollectionConfigBelow(testcase.explicitCollConfigsBlockNum+1, chaincodeName)
 				require.NoError(t, err)
-				require.Equal(t, testcase.expectedOutput, actualOutput)
+				if testcase.expectedOutput != nil && actualOutput != nil {
+					require.Equal(t, testcase.expectedOutput.CommittingBlockNum, actualOutput.CommittingBlockNum)
+					require.True(t, proto.Equal(testcase.expectedOutput.CollectionConfig, actualOutput.CollectionConfig))
+				} else {
+					require.Equal(t, testcase.expectedOutput, actualOutput)
+				}
 			},
 		)
 	}
@@ -1160,7 +1175,8 @@ func TestCommitNotifications(t *testing.T) {
 		})
 
 		commitNotification := <-dataChannel
-		require.Equal(t,
+		require.Equal(
+			t,
 			&ledger.CommitNotification{
 				BlockNumber: 1,
 				TxsInfo: []*ledger.CommitNotificationTxInfo{
@@ -1198,7 +1214,8 @@ func TestCommitNotifications(t *testing.T) {
 		})
 
 		commitNotification := <-dataChannel
-		require.Equal(t,
+		require.Equal(
+			t,
 			&ledger.CommitNotification{
 				BlockNumber: 1,
 				TxsInfo:     []*ledger.CommitNotificationTxInfo{},
@@ -1281,7 +1298,8 @@ func TestCommitNotificationsOnBlockCommit(t *testing.T) {
 
 	require.NoError(t, lgr.CommitLegacy(&ledger.BlockAndPvtData{Block: block}, &ledger.CommitOptions{}))
 	commitNotification := <-dataChannel
-	require.Equal(t,
+	require.Equal(
+		t,
 		&ledger.CommitNotification{
 			BlockNumber: 1,
 			TxsInfo: []*ledger.CommitNotificationTxInfo{
@@ -1346,7 +1364,8 @@ func testutilCollConfigPkg(colls []*peer.StaticCollectionConfig) *peer.Collectio
 		Config: []*peer.CollectionConfig{},
 	}
 	for _, coll := range colls {
-		pkg.Config = append(pkg.Config,
+		pkg.Config = append(
+			pkg.Config,
 			&peer.CollectionConfig{
 				Payload: &peer.CollectionConfig_StaticCollectionConfig{
 					StaticCollectionConfig: coll,
@@ -1360,7 +1379,7 @@ func testutilCollConfigPkg(colls []*peer.StaticCollectionConfig) *peer.Collectio
 func sampleDataWithPvtdataForSelectiveTx(t *testing.T, bg *testutil.BlockGenerator) []*ledger.BlockAndPvtData {
 	var blockAndpvtdata []*ledger.BlockAndPvtData
 	blocks := bg.NextTestBlocks(10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		blockAndpvtdata = append(blockAndpvtdata, &ledger.BlockAndPvtData{Block: blocks[i]})
 	}
 
@@ -1394,8 +1413,9 @@ func sampleDataWithPvtdataForSelectiveTx(t *testing.T, bg *testutil.BlockGenerat
 func sampleDataWithPvtdataForAllTxs(t *testing.T, bg *testutil.BlockGenerator) []*ledger.BlockAndPvtData {
 	var blockAndpvtdata []*ledger.BlockAndPvtData
 	blocks := bg.NextTestBlocks(10)
-	for i := 0; i < 10; i++ {
-		blockAndpvtdata = append(blockAndpvtdata,
+	for i := range 10 {
+		blockAndpvtdata = append(
+			blockAndpvtdata,
 			&ledger.BlockAndPvtData{
 				Block:   blocks[i],
 				PvtData: samplePvtData(t, []uint64{uint64(i), uint64(i + 1)}),
@@ -1458,7 +1478,8 @@ func btlPolicyForSampleData() pvtdatapolicy.BTLPolicy {
 }
 
 func prepareNextBlockForTest(t *testing.T, l ledger.PeerLedger, bg *testutil.BlockGenerator,
-	txid string, pubKVs map[string]string, pvtKVs map[string]string) *ledger.BlockAndPvtData {
+	txid string, pubKVs map[string]string, pvtKVs map[string]string,
+) *ledger.BlockAndPvtData {
 	simulator, _ := l.NewTxSimulator(txid)
 	// simulating transaction
 	for k, v := range pubKVs {

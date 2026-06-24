@@ -161,7 +161,7 @@ func (s *txSimulator) SetPrivateDataMetadata(namespace, collection, key string, 
 	return s.checkPrivateStateMetadata(namespace, collection, key)
 }
 
-// DeletePrivateMetadata implements method in interface `ledger.TxSimulator`
+// DeletePrivateDataMetadata implements method in interface `ledger.TxSimulator`
 func (s *txSimulator) DeletePrivateDataMetadata(namespace, collection, key string) error {
 	return s.SetPrivateDataMetadata(namespace, collection, key, nil)
 }
@@ -176,7 +176,8 @@ func (s *txSimulator) ExecuteQueryOnPrivateData(namespace, collection, query str
 
 // GetStateRangeScanIteratorWithPagination implements method in interface `ledger.QueryExecutor`
 func (s *txSimulator) GetStateRangeScanIteratorWithPagination(namespace string, startKey string,
-	endKey string, pageSize int32) (ledger.QueryResultsIterator, error) {
+	endKey string, pageSize int32,
+) (ledger.QueryResultsIterator, error) {
 	if err := s.checkBeforePaginatedQueries(); err != nil {
 		return nil, err
 	}

@@ -7,9 +7,10 @@ SPDX-License-Identifier: Apache-2.0
 package kvledger
 
 import (
+	"slices"
 	"testing"
 
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	configtxtest "github.com/hyperledger/fabric/common/configtx/test"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/msgs"
 	"github.com/hyperledger/fabric/core/ledger/mock"
@@ -26,7 +27,7 @@ func TestPauseAndResume(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, activeLedgerIDs, 0)
 	genesisBlocks := make([]*common.Block, numLedgers)
-	for i := 0; i < numLedgers; i++ {
+	for i := range numLedgers {
 		genesisBlock, _ := configtxtest.MakeGenesisBlock(constructTestLedgerID(i))
 		genesisBlocks[i] = genesisBlock
 		_, err := provider.CreateFromGenesisBlock(genesisBlock)
@@ -80,7 +81,7 @@ func TestPauseAndResumeErrors(t *testing.T) {
 	genesisBlock, _ := configtxtest.MakeGenesisBlock(ledgerID)
 	_, err := provider.CreateFromGenesisBlock(genesisBlock)
 	require.NoError(t, err)
-	// purposely set an invalid metatdata
+	// purposely set an invalid metadata
 	require.NoError(t, provider.idStore.db.Put(metadataKey(ledgerID), []byte("invalid"), true))
 
 	// fail if provider is open (e.g., peer is up running)
@@ -114,29 +115,20 @@ func assertLedgerStatus(t *testing.T, provider *Provider, genesisBlocks []*commo
 	activeLedgerIDs, err := provider.List()
 	require.NoError(t, err)
 	require.Len(t, activeLedgerIDs, numLedgers-len(pausedLedgers))
-	for i := 0; i < numLedgers; i++ {
-		if !contains(pausedLedgers, i) {
+	for i := range numLedgers {
+		if !slices.Contains(pausedLedgers, i) {
 			require.Contains(t, activeLedgerIDs, constructTestLedgerID(i))
 		}
 	}
 
-	for i := 0; i < numLedgers; i++ {
+	for i := range numLedgers {
 		m, err := s.getLedgerMetadata(constructTestLedgerID(i))
 		require.NoError(t, err)
 		require.NotNil(t, m)
-		if contains(pausedLedgers, i) {
+		if slices.Contains(pausedLedgers, i) {
 			require.Equal(t, msgs.Status_INACTIVE, m.GetStatus())
 		} else {
 			require.Equal(t, msgs.Status_ACTIVE, m.GetStatus())
 		}
 	}
-}
-
-func contains(slice []int, val int) bool {
-	for _, item := range slice {
-		if item == val {
-			return true
-		}
-	}
-	return false
 }

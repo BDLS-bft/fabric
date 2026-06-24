@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package decoration
 
 import (
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 )
 
 // Decorator decorates a chaincode input
@@ -18,7 +18,8 @@ type Decorator interface {
 
 // Apply decorators in the order provided
 func Apply(proposal *peer.Proposal, input *peer.ChaincodeInput,
-	decorators ...Decorator) *peer.ChaincodeInput {
+	decorators ...Decorator,
+) *peer.ChaincodeInput {
 	for _, decorator := range decorators {
 		input = decorator.Decorate(proposal, input)
 	}

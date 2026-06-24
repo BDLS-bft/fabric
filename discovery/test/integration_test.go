@@ -22,15 +22,13 @@ import (
 	"testing"
 	"time"
 
-	discovery_protos "github.com/hyperledger/fabric-protos-go/discovery"
-
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/gossip"
-	msprotos "github.com/hyperledger/fabric-protos-go/msp"
-	. "github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/bccsp/sw"
-	bccsp "github.com/hyperledger/fabric/bccsp/utils"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	bccsp "github.com/hyperledger/fabric-lib-go/bccsp/utils"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	discprotos "github.com/hyperledger/fabric-protos-go-apiv2/discovery"
+	"github.com/hyperledger/fabric-protos-go-apiv2/gossip"
+	msprotos "github.com/hyperledger/fabric-protos-go-apiv2/msp"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/cauthdsl"
 	"github.com/hyperledger/fabric/common/configtx"
 	"github.com/hyperledger/fabric/common/crypto/tlsgen"
@@ -61,6 +59,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -128,21 +127,21 @@ func TestGreenPath(t *testing.T) {
 	service.lsccMetadataManager.query.On("GetState", "lscc", "cc2").Return(cc2Bytes, nil)
 	service.lsccMetadataManager.query.On("GetState", "lscc", "cc2~collection").Return(collectionConfigBytes, nil)
 
-	ccWithCollection := &ChaincodeInterest{
-		Chaincodes: []*ChaincodeCall{
+	ccWithCollection := &peer.ChaincodeInterest{
+		Chaincodes: []*peer.ChaincodeCall{
 			{Name: "cc2", CollectionNames: []string{"col12"}},
 		},
 	}
-	cc2cc := &ChaincodeInterest{
-		Chaincodes: []*ChaincodeCall{
+	cc2cc := &peer.ChaincodeInterest{
+		Chaincodes: []*peer.ChaincodeCall{
 			{Name: "cc1"}, {Name: "cc2"},
 		},
 	}
 
 	// Send all queries
 	req := disc.NewRequest().AddLocalPeersQuery().OfChannel("mychannel")
-	col1 := &ChaincodeCall{Name: "cc2", CollectionNames: []string{"col1"}}
-	nonExistentCollection := &ChaincodeCall{Name: "cc2", CollectionNames: []string{"col3"}}
+	col1 := &peer.ChaincodeCall{Name: "cc2", CollectionNames: []string{"col1"}}
+	nonExistentCollection := &peer.ChaincodeCall{Name: "cc2", CollectionNames: []string{"col3"}}
 	_ = nonExistentCollection
 	req, err := req.AddPeersQuery().AddPeersQuery(col1).AddPeersQuery(nonExistentCollection).AddConfigQuery().AddEndorsersQuery(cc2cc, ccWithCollection)
 
@@ -216,7 +215,7 @@ func TestGreenPath(t *testing.T) {
 		// Ensure MSP Configs are exactly as they appear in the config block
 		for mspID, mspConfig := range conf.Msps {
 			expectedConfig := service.sup.mspConfigs[mspID]
-			require.Equal(t, expectedConfig, mspConfig)
+			require.True(t, proto.Equal(expectedConfig, mspConfig))
 		}
 		// Ensure orderer endpoints are as they appear in the config block
 		for mspID, endpoints := range conf.Orderers {
@@ -241,8 +240,8 @@ func TestEndorsementComputationFailure(t *testing.T) {
 
 	// Now test a collection query that should fail because cc2's endorsement policy is Org1MSP AND org2MSP
 	// but the collection is configured only to have peers from Org1MSP
-	ccWithCollection := &ChaincodeInterest{
-		Chaincodes: []*ChaincodeCall{
+	ccWithCollection := &peer.ChaincodeInterest{
+		Chaincodes: []*peer.ChaincodeCall{
 			{Name: "cc2", CollectionNames: []string{"col1"}},
 		},
 	}
@@ -266,8 +265,8 @@ func TestLedgerFailure(t *testing.T) {
 	service.lsccMetadataManager.query.On("GetState", "lscc", "cc2").Return(nil, errors.New("IO error"))
 	service.lsccMetadataManager.query.On("GetState", "lscc", "cc12~collection").Return(collectionConfigBytes, nil)
 
-	ccWithCollection := &ChaincodeInterest{
-		Chaincodes: []*ChaincodeCall{
+	ccWithCollection := &peer.ChaincodeInterest{
+		Chaincodes: []*peer.ChaincodeCall{
 			{Name: "cc1"},
 			{Name: "cc2", CollectionNames: []string{"col1"}},
 		},
@@ -331,7 +330,7 @@ func TestRevocation(t *testing.T) {
 
 type client struct {
 	*disc.Client
-	*discovery_protos.AuthInfo
+	*discprotos.AuthInfo
 	conn *grpc.ClientConn
 }
 
@@ -482,7 +481,7 @@ func createClientAndService(t *testing.T, testdir string) (*client, *client, *se
 		AuthCachePurgeRetentionRatio: 0.5,
 	}, sup)
 
-	discovery_protos.RegisterDiscoveryServer(gRPCServer.Server(), svc)
+	discprotos.RegisterDiscoveryServer(gRPCServer.Server(), svc)
 
 	require.NoError(t, err)
 	go gRPCServer.Start()
@@ -503,7 +502,7 @@ func createClientAndService(t *testing.T, testdir string) (*client, *client, *se
 	require.NoError(t, err)
 
 	userSigner := createUserSigner(t)
-	wrapperUserClient := &client{AuthInfo: &discovery_protos.AuthInfo{
+	wrapperUserClient := &client{AuthInfo: &discprotos.AuthInfo{
 		ClientIdentity:    userSigner.Creator,
 		ClientTlsCertHash: util.ComputeSHA256(clientKeyPair.TLSCert.Raw),
 	}, conn: conn}
@@ -511,7 +510,7 @@ func createClientAndService(t *testing.T, testdir string) (*client, *client, *se
 	wrapperUserClient.Client = disc.NewClient(wrapperUserClient.newConnection, userSigner.Sign, signerCacheSize)
 
 	adminSigner := createAdminSigner(t)
-	wrapperAdminClient := &client{AuthInfo: &discovery_protos.AuthInfo{
+	wrapperAdminClient := &client{AuthInfo: &discprotos.AuthInfo{
 		ClientIdentity:    adminSigner.Creator,
 		ClientTlsCertHash: util.ComputeSHA256(clientKeyPair.TLSCert.Raw),
 	}, conn: conn}
@@ -666,6 +665,7 @@ func createChannelConfig(t *testing.T, cryptoConfigDir string) *common.Config {
 	// Override the MSP directories
 	for _, org := range channelConfig.Orderer.Organizations {
 		org.MSPDir = filepath.Join(cryptoConfigDir, "ordererOrganizations", "example.com", "msp")
+		org.OrdererEndpoints = []string{"orderer.example.com:7050"}
 	}
 	for i, org := range channelConfig.Application.Organizations {
 		if org.MSPType != "bccsp" {
@@ -882,14 +882,14 @@ func aliveMsg(pkiID gcommon.PKIidType) gdisc.NetworkMember {
 }
 
 func buildCollectionConfig(col2principals map[string][]*msprotos.MSPPrincipal) []byte {
-	collections := &CollectionConfigPackage{}
+	collections := &peer.CollectionConfigPackage{}
 	for col, principals := range col2principals {
-		collections.Config = append(collections.Config, &CollectionConfig{
-			Payload: &CollectionConfig_StaticCollectionConfig{
-				StaticCollectionConfig: &StaticCollectionConfig{
+		collections.Config = append(collections.Config, &peer.CollectionConfig{
+			Payload: &peer.CollectionConfig_StaticCollectionConfig{
+				StaticCollectionConfig: &peer.StaticCollectionConfig{
 					Name: col,
-					MemberOrgsPolicy: &CollectionPolicyConfig{
-						Payload: &CollectionPolicyConfig_SignaturePolicy{
+					MemberOrgsPolicy: &peer.CollectionPolicyConfig{
+						Payload: &peer.CollectionPolicyConfig_SignaturePolicy{
 							SignaturePolicy: &common.SignaturePolicyEnvelope{
 								Identities: principals,
 							},

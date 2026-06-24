@@ -10,20 +10,20 @@ import (
 	"fmt"
 	"time"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	ab "github.com/hyperledger/fabric-protos-go/orderer"
-	"github.com/hyperledger/fabric-protos-go/orderer/etcdraft"
-	"github.com/hyperledger/fabric-protos-go/orderer/smartbft"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	ab "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer/etcdraft"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer/smartbft"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/internal/configtxgen/encoder"
 	"github.com/hyperledger/fabric/internal/configtxgen/encoder/fakes"
 	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
+	. "github.com/hyperledger/fabric/internal/test"
 	"github.com/hyperledger/fabric/protoutil"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:generate counterfeiter -o fakes/signer_serializer.go --fake-name SignerSerializer . signerSerializer
@@ -201,7 +201,7 @@ var _ = Describe("Encoder", func() {
 
 			It("wraps and returns the error", func() {
 				err := encoder.AddPolicies(cg, policies, "Readers")
-				Expect(err).To(MatchError("invalid signature policy rule 'garbage': unrecognized token 'garbage' in policy string"))
+				Expect(err).To(MatchError("invalid signature policy rule 'garbage': unknown name garbage (1:1)\n | garbage\n | ^"))
 			})
 		})
 
@@ -242,7 +242,6 @@ var _ = Describe("Encoder", func() {
 				Orderer: &genesisconfig.Orderer{
 					OrdererType: "solo",
 					Policies:    CreateStandardOrdererPolicies(),
-					Addresses:   []string{"foo.com:7050", "bar.com:8050"},
 				},
 				Consortiums: map[string]*genesisconfig.Consortium{
 					"SampleConsortium": {},
@@ -256,12 +255,12 @@ var _ = Describe("Encoder", func() {
 		It("translates the config into a config group", func() {
 			cg, err := encoder.NewChannelGroup(conf)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(cg.Values)).To(Equal(5))
+			Expect(len(cg.Values)).To(Equal(4))
 			Expect(cg.Values["BlockDataHashingStructure"]).NotTo(BeNil())
 			Expect(cg.Values["Consortium"]).NotTo(BeNil())
 			Expect(cg.Values["Capabilities"]).NotTo(BeNil())
 			Expect(cg.Values["HashingAlgorithm"]).NotTo(BeNil())
-			Expect(cg.Values["OrdererAddresses"]).NotTo(BeNil())
+			Expect(cg.Values["OrdererAddresses"]).To(BeNil())
 		})
 
 		Context("when the policy definition is bad", func() {
@@ -351,11 +350,12 @@ var _ = Describe("Encoder", func() {
 				OrdererType: "solo",
 				Organizations: []*genesisconfig.Organization{
 					{
-						MSPDir:   "../../../sampleconfig/msp",
-						ID:       "SampleMSP",
-						MSPType:  "bccsp",
-						Name:     "SampleOrg",
-						Policies: CreateStandardPolicies(),
+						MSPDir:           "../../../sampleconfig/msp",
+						ID:               "SampleMSP",
+						MSPType:          "bccsp",
+						Name:             "SampleOrg",
+						Policies:         CreateStandardPolicies(),
+						OrdererEndpoints: []string{"foo:7050", "bar:8050"},
 					},
 				},
 				Policies: CreateStandardOrdererPolicies(),
@@ -475,6 +475,13 @@ var _ = Describe("Encoder", func() {
 				Expect(consenter2.Id).To(Equal(uint32(2)))
 				Expect(consenter2.ClientTlsCert).ToNot(BeNil())
 			})
+
+			It("requires V3_0", func() {
+				delete(channelCapabilities, "V3_0")
+				channelCapabilities["V2_0"] = true
+				_, err := encoder.NewOrdererGroup(conf, channelCapabilities)
+				Expect(err).To(MatchError("orderer type BFT must be used with V3_0 channel capability: map[V2_0:true]"))
+			})
 		})
 
 		Context("when the consensus type is unknown", func() {
@@ -496,6 +503,24 @@ var _ = Describe("Encoder", func() {
 			It("wraps and returns the error", func() {
 				_, err := encoder.NewOrdererGroup(conf, channelCapabilities)
 				Expect(err).To(MatchError("failed to create orderer org: 1 - Error loading MSP configuration for org: SampleOrg: unknown MSP type 'garbage'"))
+			})
+		})
+
+		Context("when global endpoints exist", func() {
+			BeforeEach(func() {
+				conf.Addresses = []string{"addr1", "addr2"}
+			})
+
+			It("wraps and returns the error", func() {
+				_, err := encoder.NewOrdererGroup(conf, channelCapabilities)
+				Expect(err).To(MatchError("global orderer endpoints exist, but can not be used with V3_0 capability: [addr1 addr2]"))
+			})
+
+			It("is permitted when V3_0 is false", func() {
+				delete(channelCapabilities, "V3_0")
+				channelCapabilities["V2_0"] = true
+				_, err := encoder.NewOrdererGroup(conf, channelCapabilities)
+				Expect(err).ToNot(HaveOccurred())
 			})
 		})
 	})
@@ -650,7 +675,7 @@ var _ = Describe("Encoder", func() {
 		})
 
 		It("translates the config into a config group", func() {
-			cg, err := encoder.NewOrdererOrgGroup(conf)
+			cg, err := encoder.NewOrdererOrgGroup(conf, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(cg.Values)).To(Equal(2))
 			Expect(cg.Values["MSP"]).NotTo(BeNil())
@@ -667,7 +692,7 @@ var _ = Describe("Encoder", func() {
 			})
 
 			It("returns an empty org group with mod policy set", func() {
-				cg, err := encoder.NewOrdererOrgGroup(conf)
+				cg, err := encoder.NewOrdererOrgGroup(conf, nil)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(cg.Values)).To(Equal(0))
 				Expect(len(cg.Policies)).To(Equal(0))
@@ -679,7 +704,7 @@ var _ = Describe("Encoder", func() {
 				})
 
 				It("returns without error", func() {
-					_, err := encoder.NewOrdererOrgGroup(conf)
+					_, err := encoder.NewOrdererOrgGroup(conf, nil)
 					Expect(err).NotTo(HaveOccurred())
 				})
 			})
@@ -690,10 +715,18 @@ var _ = Describe("Encoder", func() {
 				conf.OrdererEndpoints = []string{}
 			})
 
-			It("does not include the endpoints in the config group", func() {
-				cg, err := encoder.NewOrdererOrgGroup(conf)
+			It("does not include the endpoints in the config group with v2_0", func() {
+				channelCapabilities := map[string]bool{"V2_0": true}
+				cg, err := encoder.NewOrdererOrgGroup(conf, channelCapabilities)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(cg.Values["Endpoints"]).To(BeNil())
+			})
+
+			It("emits an error with v3_0", func() {
+				channelCapabilities := map[string]bool{"V3_0": true}
+				cg, err := encoder.NewOrdererOrgGroup(conf, channelCapabilities)
+				Expect(err).To(HaveOccurred())
+				Expect(cg).To(BeNil())
 			})
 		})
 
@@ -703,7 +736,7 @@ var _ = Describe("Encoder", func() {
 			})
 
 			It("does not produce an error", func() {
-				_, err := encoder.NewOrdererOrgGroup(conf)
+				_, err := encoder.NewOrdererOrgGroup(conf, nil)
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
@@ -714,7 +747,7 @@ var _ = Describe("Encoder", func() {
 			})
 
 			It("wraps and returns the error", func() {
-				_, err := encoder.NewOrdererOrgGroup(conf)
+				_, err := encoder.NewOrdererOrgGroup(conf, nil)
 				Expect(err).To(MatchError("error adding policies to orderer org group 'SampleOrg': invalid implicit meta policy rule 'garbage': expected two space separated tokens, but got 1"))
 			})
 		})
@@ -918,7 +951,7 @@ var _ = Describe("Encoder", func() {
 						},
 					},
 				}
-				Expect(proto.Equal(expected, cg)).To(BeTrue())
+				Expect(expected).To(ProtoEqual(cg))
 			})
 
 			Context("when the template configuration is not the default", func() {
@@ -1306,7 +1339,7 @@ var _ = Describe("Encoder", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(cg.Groups)).To(Equal(2))
 				Expect(cg.Groups["Orderer"]).NotTo(BeNil())
-				Expect(proto.Equal(cg.Groups["Orderer"], sysChannelGroup.Groups["Orderer"])).To(BeTrue())
+				Expect(cg.Groups["Orderer"]).To(ProtoEqual(sysChannelGroup.Groups["Orderer"]))
 				Expect(cg.Groups["Application"]).NotTo(BeNil())
 				Expect(len(cg.Groups["Application"].Policies)).To(Equal(1))
 				Expect(cg.Groups["Application"].Policies["Admins"]).NotTo(BeNil())

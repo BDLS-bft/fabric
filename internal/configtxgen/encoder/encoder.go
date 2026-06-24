@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer/smartbft"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/channelconfig"
-	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/genesis"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/common/policydsl"
@@ -25,6 +25,7 @@ import (
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -183,8 +184,12 @@ func NewChannelGroup(conf *genesisconfig.Profile) (*cb.ConfigGroup, error) {
 // It sets the mod_policy of all elements to "Admins".  This group is always present in any channel configuration.
 func NewOrdererGroup(conf *genesisconfig.Orderer, channelCapabilities map[string]bool) (*cb.ConfigGroup, error) {
 	if conf.OrdererType == "BFT" && !channelCapabilities["V3_0"] {
-		return nil, errors.New("orderer type BFT must be used with V3_0 capability")
+		return nil, errors.Errorf("orderer type BFT must be used with V3_0 channel capability: %v", channelCapabilities)
 	}
+	if len(conf.Addresses) > 0 && channelCapabilities["V3_0"] {
+		return nil, errors.Errorf("global orderer endpoints exist, but can not be used with V3_0 capability: %v", conf.Addresses)
+	}
+
 	ordererGroup := protoutil.NewConfigGroup()
 	if err := AddOrdererPolicies(ordererGroup, conf.Policies, channelconfig.AdminsPolicyKey); err != nil {
 		return nil, errors.Wrapf(err, "error adding policies to orderer group")
@@ -219,6 +224,8 @@ func NewOrdererGroup(conf *genesisconfig.Orderer, channelCapabilities map[string
 		if consensusMetadata, err = channelconfig.MarshalBFTOptions(conf.SmartBFT); err != nil {
 			return nil, errors.Errorf("consenter options read failed with error %s for orderer type %s", err, ConsensusTypeBFT)
 		}
+		// Force leader rotation to be turned off
+		conf.SmartBFT.LeaderRotation = smartbft.Options_ROTATION_OFF
 		// Overwrite policy manually by computing it from the consenters
 		policies.EncodeBFTBlockVerificationPolicy(consenterProtos, ordererGroup)
 	default:
@@ -229,7 +236,7 @@ func NewOrdererGroup(conf *genesisconfig.Orderer, channelCapabilities map[string
 
 	for _, org := range conf.Organizations {
 		var err error
-		ordererGroup.Groups[org.Name], err = NewOrdererOrgGroup(org)
+		ordererGroup.Groups[org.Name], err = NewOrdererOrgGroup(org, channelCapabilities)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to create orderer org")
 		}
@@ -279,7 +286,7 @@ func consenterProtosFromConfig(consenterMapping []*genesisconfig.Consenter) ([]*
 	return consenterProtos, nil
 }
 
-// NewConsortiumsGroup returns an org component of the channel configuration.  It defines the crypto material for the
+// NewConsortiumOrgGroup returns an org component of the channel configuration.  It defines the crypto material for the
 // organization (its MSP).  It sets the mod_policy of all elements to "Admins".
 func NewConsortiumOrgGroup(conf *genesisconfig.Organization) (*cb.ConfigGroup, error) {
 	consortiumsOrgGroup := protoutil.NewConfigGroup()
@@ -305,7 +312,8 @@ func NewConsortiumOrgGroup(conf *genesisconfig.Organization) (*cb.ConfigGroup, e
 
 // NewOrdererOrgGroup returns an orderer org component of the channel configuration.  It defines the crypto material for the
 // organization (its MSP).  It sets the mod_policy of all elements to "Admins".
-func NewOrdererOrgGroup(conf *genesisconfig.Organization) (*cb.ConfigGroup, error) {
+// channelCapabilities map[string]bool
+func NewOrdererOrgGroup(conf *genesisconfig.Organization, channelCapabilities map[string]bool) (*cb.ConfigGroup, error) {
 	ordererOrgGroup := protoutil.NewConfigGroup()
 	ordererOrgGroup.ModPolicy = channelconfig.AdminsPolicyKey
 
@@ -326,6 +334,8 @@ func NewOrdererOrgGroup(conf *genesisconfig.Organization) (*cb.ConfigGroup, erro
 
 	if len(conf.OrdererEndpoints) > 0 {
 		addValue(ordererOrgGroup, channelconfig.EndpointsValue(conf.OrdererEndpoints), channelconfig.AdminsPolicyKey)
+	} else if channelCapabilities["V3_0"] {
+		return nil, errors.Errorf("orderer endpoints for organization %s are missing and must be configured when capability V3_0 is enabled", conf.Name)
 	}
 
 	return ordererOrgGroup, nil
@@ -417,8 +427,8 @@ func NewConsortiumsGroup(conf map[string]*genesisconfig.Consortium) (*cb.ConfigG
 	return consortiumsGroup, nil
 }
 
-// NewConsortiums returns a consortiums component of the channel configuration.  Each consortium defines the organizations which may be involved in channel
-// creation, as well as the channel creation policy the orderer checks at channel creation time to authorize the action.  It sets the mod_policy of all
+// NewConsortiumGroup returns a consortium component of the channel configuration. Each consortium defines the organizations which may be involved in channel
+// creation, as well as the channel creation policy the orderer checks at channel creation time to authorize the action. It sets the mod_policy of all
 // elements to "/Channel/Orderer/Admins".
 func NewConsortiumGroup(conf *genesisconfig.Consortium) (*cb.ConfigGroup, error) {
 	consortiumGroup := protoutil.NewConfigGroup()

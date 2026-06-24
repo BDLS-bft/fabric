@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	bccsp "github.com/hyperledger/fabric/bccsp/factory"
-	"github.com/hyperledger/fabric/common/flogging"
+	bccsp "github.com/hyperledger/fabric-lib-go/bccsp/factory"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
 	"github.com/hyperledger/fabric/common/viperutil"
 	coreconfig "github.com/hyperledger/fabric/core/config"
 	"github.com/hyperledger/fabric/internal/pkg/comm"
@@ -24,7 +24,7 @@ type TopLevel struct {
 	General              General
 	FileLedger           FileLedger
 	Debug                Debug
-	Consensus            interface{}
+	Consensus            any
 	Operations           Operations
 	Metrics              Metrics
 	ChannelParticipation ChannelParticipation
@@ -51,6 +51,7 @@ type General struct {
 	Authentication    Authentication
 	MaxRecvMsgSize    int32
 	MaxSendMsgSize    int32
+	Throttling        Throttling
 }
 
 type Cluster struct {
@@ -67,6 +68,7 @@ type Cluster struct {
 	ReplicationPullTimeout         time.Duration
 	ReplicationRetryTimeout        time.Duration
 	ReplicationMaxRetries          int
+	ReplicationPolicy              string // BFT: "simple" | "consensus" (default); etcdraft: ignored, always "simple"
 	SendBufferSize                 int
 	CertExpirationWarningThreshold time.Duration
 	TLSHandshakeTimeShift          time.Duration
@@ -148,6 +150,19 @@ type Admin struct {
 	TLS           TLS
 }
 
+// Throttling defines a max rate of transactions per client.
+// The effective rate per client is the rate defined divided equally
+// by all clients, until the clients cease from sending transactions
+// and inactivity timeout expires for them.
+type Throttling struct {
+	// Rate is the maximum rate for all clients combined.
+	Rate int
+	// InactivityTimeout defines the time frame after which
+	// inactive clients are pruned from memory and are not considered
+	// when allocating the budget for throttling per client.
+	InactivityTimeout time.Duration
+}
+
 // ChannelParticipation provides the channel participation API configuration for the orderer.
 // Channel participation uses the same ListenAddress and TLS settings of the Operations service.
 type ChannelParticipation struct {
@@ -174,6 +189,7 @@ var Defaults = TopLevel{
 			ReplicationRetryTimeout:        time.Second * 5,
 			ReplicationPullTimeout:         time.Second * 5,
 			CertExpirationWarningThreshold: time.Hour * 24 * 7,
+			ReplicationPolicy:              "consensus", // BFT default; on etcdraft it is ignored
 		},
 		LocalMSPDir: "msp",
 		LocalMSPID:  "SampleOrg",
@@ -183,6 +199,9 @@ var Defaults = TopLevel{
 		},
 		MaxRecvMsgSize: comm.DefaultMaxRecvMsgSize,
 		MaxSendMsgSize: comm.DefaultMaxSendMsgSize,
+		Throttling: Throttling{
+			InactivityTimeout: time.Second * 5,
+		},
 	},
 	FileLedger: FileLedger{
 		Location: "/var/hyperledger/production/orderer",
@@ -315,6 +334,9 @@ func (c *TopLevel) completeInitialization(configDir string) {
 			c.General.Cluster.ReplicationRetryTimeout = Defaults.General.Cluster.ReplicationRetryTimeout
 		case c.General.Cluster.CertExpirationWarningThreshold == 0:
 			c.General.Cluster.CertExpirationWarningThreshold = Defaults.General.Cluster.CertExpirationWarningThreshold
+		case (c.General.Cluster.ReplicationPolicy != "simple") && (c.General.Cluster.ReplicationPolicy != "consensus"):
+			logger.Infof("General.Cluster.ReplicationPolicy is `%s`, setting to `%s`", c.General.Cluster.ReplicationPolicy, Defaults.General.Cluster.ReplicationPolicy)
+			c.General.Cluster.ReplicationPolicy = Defaults.General.Cluster.ReplicationPolicy
 
 		case c.General.Profile.Enabled && c.General.Profile.Address == "":
 			logger.Infof("Profiling enabled and General.Profile.Address unset, setting to %s", Defaults.General.Profile.Address)
@@ -344,6 +366,9 @@ func (c *TopLevel) completeInitialization(configDir string) {
 		case c.General.MaxSendMsgSize == 0:
 			logger.Infof("General.MaxSendMsgSize is unset, setting to %v", Defaults.General.MaxSendMsgSize)
 			c.General.MaxSendMsgSize = Defaults.General.MaxSendMsgSize
+		case c.General.Throttling.InactivityTimeout == 0:
+			logger.Infof("General.Throttling.InactivityTimeout is unset, setting to %v", Defaults.General.Throttling.InactivityTimeout)
+			c.General.Throttling.InactivityTimeout = Defaults.General.Throttling.InactivityTimeout
 		default:
 			return
 		}

@@ -9,10 +9,9 @@ package endorser_test
 import (
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	tspb "github.com/hyperledger/fabric-protos-go/transientstore"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
+	tspb "github.com/hyperledger/fabric-protos-go-apiv2/transientstore"
 	"github.com/hyperledger/fabric/core/endorser"
 	"github.com/hyperledger/fabric/core/endorser/fake"
 	"github.com/hyperledger/fabric/core/endorser/mocks"
@@ -24,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 var mockTransientStoreRetriever = transientStoreRetriever()
@@ -61,7 +61,8 @@ func (s *testTransientStore) tearDown() {
 }
 
 func (s *testTransientStore) Persist(txid string, blockHeight uint64,
-	privateSimulationResultsWithConfig *tspb.TxPvtReadWriteSetWithConfigInfo) error {
+	privateSimulationResultsWithConfig *tspb.TxPvtReadWriteSetWithConfigInfo,
+) error {
 	return s.store.Persist(txid, blockHeight, privateSimulationResultsWithConfig)
 }
 

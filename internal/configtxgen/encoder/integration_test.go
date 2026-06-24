@@ -10,13 +10,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/core/config/configtest"
 	"github.com/hyperledger/fabric/internal/configtxgen/encoder"
 	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
-
 	"github.com/pkg/errors"
 )
 
@@ -48,9 +47,11 @@ func hasModPolicySet(groupName string, cg *cb.ConfigGroup) error {
 }
 
 var _ = Describe("Integration", func() {
-	DescribeTable("successfully parses the profile",
+	DescribeTable(
+		"successfully parses the profile",
 		func(profile string) {
 			config := genesisconfig.Load(profile, configtest.GetDevConfigDir())
+			config.Capabilities = map[string]bool{"V2_0": true}
 			group, err := encoder.NewChannelGroup(config)
 			Expect(err).NotTo(HaveOccurred())
 

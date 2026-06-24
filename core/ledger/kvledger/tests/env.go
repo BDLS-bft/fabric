@@ -10,14 +10,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/ledger/blkstorage"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
 	"github.com/hyperledger/fabric/core/chaincode/implicitcollection"
 	"github.com/hyperledger/fabric/core/chaincode/lifecycle"
 	"github.com/hyperledger/fabric/core/container/externalbuilder"
@@ -315,15 +316,10 @@ type membershipInfoProvider struct {
 	myOrgMSPID string
 }
 
-func (p *membershipInfoProvider) AmMemberOf(channelName string, collectionPolicyConfig *peer.CollectionPolicyConfig) (bool, error) {
+func (p *membershipInfoProvider) AmMemberOf(channelName string, collectionPolicyConfig *peer.CollectionPolicyConfig) bool {
 	members := convertFromMemberOrgsPolicy(collectionPolicyConfig)
-	fmt.Printf("memebers = %s\n", members)
-	for _, m := range members {
-		if m == p.myOrgMSPID {
-			return true, nil
-		}
-	}
-	return false, nil
+	fmt.Printf("members = %s\n", members)
+	return slices.Contains(members, p.myOrgMSPID)
 }
 
 func (p *membershipInfoProvider) MyImplicitCollectionName() string {

@@ -8,9 +8,10 @@ package gateway
 import (
 	"context"
 
-	peerproto "github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	peerproto "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/channelconfig"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/common/deliverclient/orderers"
 	"github.com/hyperledger/fabric/core/peer"
 	"github.com/hyperledger/fabric/core/scc"
 	gdiscovery "github.com/hyperledger/fabric/gossip/discovery"
@@ -18,7 +19,6 @@ import (
 	"github.com/hyperledger/fabric/internal/pkg/gateway/commit"
 	"github.com/hyperledger/fabric/internal/pkg/gateway/config"
 	"github.com/hyperledger/fabric/internal/pkg/gateway/ledger"
-	"github.com/hyperledger/fabric/internal/pkg/peer/orderers"
 	"google.golang.org/grpc"
 )
 
@@ -48,7 +48,7 @@ type CommitFinder interface {
 }
 
 type ACLChecker interface {
-	CheckACL(policyName string, channelName string, data interface{}) error
+	CheckACL(policyName string, channelName string, data any) error
 }
 
 type channelConfigGetter func(cid string) channelconfig.Resources

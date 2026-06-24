@@ -16,18 +16,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/bccsp"
-	"github.com/hyperledger/fabric/bccsp/factory"
-	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	"github.com/hyperledger/fabric-lib-go/bccsp/factory"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging/floggingtest"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/prometheus"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/crypto/tlsgen"
-	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/hyperledger/fabric/common/flogging/floggingtest"
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
 	"github.com/hyperledger/fabric/common/ledger/blockledger/fileledger"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
-	"github.com/hyperledger/fabric/common/metrics/prometheus"
 	"github.com/hyperledger/fabric/core/config/configtest"
 	"github.com/hyperledger/fabric/internal/configtxgen/encoder"
 	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
@@ -191,7 +191,7 @@ func TestInitializeServerConfig(t *testing.T) {
 			privateKey:     goodFile,
 			rootCA:         goodFile,
 			clientRootCert: goodFile,
-			expectedPanic:  "Failed to load server Certificate file 'does_not_exist' (open does_not_exist: no such file or directory)",
+			expectedPanic:  "Failed to load server TLS Certificate file 'does_not_exist' (open does_not_exist: no such file or directory)",
 		},
 		{
 			name:           "BadPrivateKey",
@@ -199,7 +199,7 @@ func TestInitializeServerConfig(t *testing.T) {
 			privateKey:     badFile,
 			rootCA:         goodFile,
 			clientRootCert: goodFile,
-			expectedPanic:  "Failed to load PrivateKey file 'does_not_exist' (open does_not_exist: no such file or directory)",
+			expectedPanic:  "Failed to load TLS PrivateKey file 'does_not_exist' (open does_not_exist: no such file or directory)",
 		},
 		{
 			name:           "BadRootCA",
@@ -207,7 +207,7 @@ func TestInitializeServerConfig(t *testing.T) {
 			privateKey:     goodFile,
 			rootCA:         badFile,
 			clientRootCert: goodFile,
-			expectedPanic:  "Failed to load ServerRootCAs file 'open does_not_exist: no such file or directory' (does_not_exist)",
+			expectedPanic:  "Failed to load TLS ServerRootCAs file 'open does_not_exist: no such file or directory' (does_not_exist)",
 		},
 		{
 			name:           "BadClientRootCertificate",
@@ -215,7 +215,7 @@ func TestInitializeServerConfig(t *testing.T) {
 			privateKey:     goodFile,
 			rootCA:         goodFile,
 			clientRootCert: badFile,
-			expectedPanic:  "Failed to load ClientRootCAs file 'open does_not_exist: no such file or directory' (does_not_exist)",
+			expectedPanic:  "Failed to load TLS ClientRootCAs file 'open does_not_exist: no such file or directory' (does_not_exist)",
 		},
 		{
 			name:           "BadCertificate - cluster reuses server config",
@@ -309,13 +309,14 @@ func TestInitializeServerConfig(t *testing.T) {
 					},
 				},
 			}
-			require.PanicsWithValue(t, tc.expectedPanic, func() {
-				if !tc.isCluster {
-					initializeServerConfig(conf, nil)
-				} else {
-					initializeClusterClientConfig(conf)
-				}
-			},
+			require.PanicsWithValue(
+				t, tc.expectedPanic, func() {
+					if !tc.isCluster {
+						initializeServerConfig(conf, nil)
+					} else {
+						initializeClusterClientConfig(conf)
+					}
+				},
 			)
 		})
 	}
@@ -409,6 +410,7 @@ func TestVerifyNoSystemChannel(t *testing.T) {
 	// skipping app channel
 	conf := genesisconfig.Load(genesisconfig.SampleInsecureSoloProfile, configtest.GetDevConfigDir())
 	conf.Consortiums = nil
+	conf.Capabilities = map[string]bool{"V2_0": true}
 	configBlock := encoder.New(conf).GenesisBlock()
 	rl, err := rlf.GetOrCreate("appchannelid")
 	require.NoError(t, err)
@@ -418,6 +420,7 @@ func TestVerifyNoSystemChannel(t *testing.T) {
 
 	// detecting system channel genesis and panicking
 	conf = genesisconfig.Load(genesisconfig.SampleInsecureSoloProfile, configtest.GetDevConfigDir())
+	conf.Capabilities = map[string]bool{"V2_0": true}
 	configBlock = encoder.New(conf).GenesisBlock()
 	rl, err = rlf.GetOrCreate("testchannelid")
 	require.NoError(t, err)
@@ -953,7 +956,7 @@ func genesisConfig(t *testing.T, genesisFile string) *localconfig.TopLevel {
 }
 
 func panicMsg(f func()) string {
-	var message interface{}
+	var message any
 	func() {
 		defer func() {
 			message = recover()
@@ -968,6 +971,9 @@ func panicMsg(f func()) string {
 // produces a system channel genesis file to make sure the server detects it and refuses to start
 func produceGenesisFileEtcdRaft(t *testing.T, channelID string, tmpDir string) (string, []byte) {
 	confRaft := genesisconfig.Load("SampleEtcdRaftSystemChannel", tmpDir)
+	confRaft.Orderer.Addresses = []string{}
+	confRaft.Orderer.Organizations[0].OrdererEndpoints = []string{"127.0.0.1:7050"}
+	confRaft.Capabilities = map[string]bool{"V3_0": true}
 
 	serverCert, err := os.ReadFile(string(confRaft.Orderer.EtcdRaft.Consenters[0].ServerTlsCert))
 	require.NoError(t, err)
@@ -984,6 +990,9 @@ func produceGenesisFileEtcdRaft(t *testing.T, channelID string, tmpDir string) (
 
 func produceGenesisFileEtcdRaftAppChannel(t *testing.T, channelID string, tmpDir string) (string, []byte) {
 	confRaft := genesisconfig.Load("SampleOrgChannel", tmpDir)
+	confRaft.Orderer.Addresses = []string{}
+	confRaft.Orderer.Organizations[0].OrdererEndpoints = []string{"127.0.0.1:7050"}
+	confRaft.Capabilities = map[string]bool{"V3_0": true}
 
 	serverCert, err := os.ReadFile(string(confRaft.Orderer.EtcdRaft.Consenters[0].ServerTlsCert))
 	require.NoError(t, err)

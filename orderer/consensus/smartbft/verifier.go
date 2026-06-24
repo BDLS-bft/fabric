@@ -14,17 +14,17 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/SmartBFT-Go/consensus/pkg/types"
-	"github.com/SmartBFT-Go/consensus/smartbftprotos"
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/msp"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger-labs/SmartBFT/pkg/types"
+	"github.com/hyperledger-labs/SmartBFT/smartbftprotos"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/msp"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:generate mockery -dir . -name Sequencer -case underscore -output mocks
@@ -75,6 +75,7 @@ func (nibd NodeIdentitiesByID) IdentityToID(identity []byte) (uint64, bool) {
 
 // Verifier verifies proposals and signatures
 type Verifier struct {
+	Channel               string
 	RuntimeConfig         *atomic.Value
 	ReqInspector          *RequestInspector
 	ConsenterVerifier     ConsenterVerifier
@@ -102,7 +103,7 @@ func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo,
 	}
 
 	rtc := v.RuntimeConfig.Load().(RuntimeConfig)
-	if err := verifyHashChain(block, rtc.LastCommittedBlockHash); err != nil {
+	if err := verifyHashChainAndDataHash(block, rtc.LastCommittedBlockHash); err != nil {
 		return nil, err
 	}
 
@@ -166,13 +167,16 @@ func (v *Verifier) verifyRequest(rawRequest []byte, noConfigAllowed bool) (types
 	err = v.AccessController.Evaluate([]*protoutil.SignedData{
 		{Identity: req.sigHdr.Creator, Data: req.envelope.Payload, Signature: req.envelope.Signature},
 	})
-
 	if err != nil {
 		return types.RequestInfo{}, errors.Wrap(err, "access denied")
 	}
 
 	if noConfigAllowed && req.chHdr.Type != int32(cb.HeaderType_ENDORSER_TRANSACTION) {
 		return types.RequestInfo{}, errors.Errorf("only endorser transactions can be sent with other transactions")
+	}
+
+	if req.chHdr.ChannelId != v.Channel {
+		return types.RequestInfo{}, errors.Errorf("request is for channel %s but expected channel %s", req.chHdr.ChannelId, v.Channel)
 	}
 
 	switch req.chHdr.Type {
@@ -185,11 +189,18 @@ func (v *Verifier) verifyRequest(rawRequest []byte, noConfigAllowed bool) (types
 	}
 
 	if req.chHdr.Type == int32(cb.HeaderType_CONFIG) {
-		err := v.ConfigValidator.ValidateConfig(req.envelope)
+		err = v.ConfigValidator.ValidateConfig(req.envelope)
 		if err != nil {
 			v.Logger.Errorf("Error verifying config update: %v", err)
 			return types.RequestInfo{}, err
 		}
+
+		reqID := v.ReqInspector.RequestID(rawRequest)
+		if v.ReqInspector.isEmpty(reqID) {
+			return types.RequestInfo{}, errors.Errorf("request id is empty")
+		}
+
+		return reqID, nil
 	}
 
 	return v.ReqInspector.requestIDFromSigHeader(req.sigHdr)
@@ -231,7 +242,7 @@ func (v *Verifier) VerificationSequence() uint64 {
 	return v.VerificationSequencer.Sequence()
 }
 
-func verifyHashChain(block *cb.Block, prevHeaderHash string) error {
+func verifyHashChainAndDataHash(block *cb.Block, prevHeaderHash string) error {
 	thisHdrHashOfPrevHdr := hex.EncodeToString(block.Header.PreviousHash)
 	if prevHeaderHash != thisHdrHashOfPrevHdr {
 		return errors.Errorf("previous header hash is %s but expected %s", thisHdrHashOfPrevHdr, prevHeaderHash)
@@ -281,7 +292,8 @@ func (v *Verifier) verifyBlockDataAndMetadata(block *cb.Block, metadata []byte) 
 	}
 
 	if !proto.Equal(metadataInBlock, metadataFromProposal) {
-		return nil, errors.Errorf("expected metadata in block to be [view_id:%d latest_sequence:%d] but got [view_id:%d latest_sequence:%d]",
+		return nil, errors.Errorf(
+			"expected metadata in block to be [view_id:%d latest_sequence:%d] but got [view_id:%d latest_sequence:%d]",
 			metadataFromProposal.GetViewId(), metadataFromProposal.GetLatestSequence(),
 			metadataInBlock.GetViewId(), metadataInBlock.GetLatestSequence(),
 		)

@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SmartBFT-Go/consensus/pkg/types"
-	"github.com/hyperledger/fabric-protos-go/orderer/etcdraft"
-	"github.com/hyperledger/fabric-protos-go/orderer/smartbft"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger-labs/SmartBFT/pkg/types"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer/etcdraft"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer/smartbft"
 	"github.com/hyperledger/fabric/common/viperutil"
 	cf "github.com/hyperledger/fabric/core/config"
 	"github.com/hyperledger/fabric/msp"
@@ -474,7 +474,7 @@ var cache = &configCache{
 }
 
 // load loads the TopLevel config structure from configCache.
-// if not successful, it unmarshal a config file, and populate configCache
+// if not successful, it unmarshals a config file, and populate configCache
 // with marshaled TopLevel struct.
 func (c *configCache) load(config *viperutil.ConfigParser, configPath string) (*TopLevel, error) {
 	c.mutex.Lock()

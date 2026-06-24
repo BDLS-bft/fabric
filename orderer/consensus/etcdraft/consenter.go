@@ -12,24 +12,24 @@ import (
 	"time"
 
 	"code.cloudfoundry.org/clock"
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/orderer"
-	"github.com/hyperledger/fabric-protos-go/orderer/etcdraft"
-	"github.com/hyperledger/fabric/bccsp"
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/metrics"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer/etcdraft"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/crypto"
-	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/hyperledger/fabric/common/metrics"
 	"github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	"github.com/hyperledger/fabric/orderer/common/types"
 	"github.com/hyperledger/fabric/orderer/consensus"
 	"github.com/hyperledger/fabric/protoutil"
-	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
-	"go.etcd.io/etcd/raft/v3"
+	"go.etcd.io/raft/v3"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:generate counterfeiter -o mocks/chain_manager.go --fake-name ChainManager . ChainManager
@@ -184,7 +184,7 @@ func (c *Consenter) HandleChain(support consensus.ConsenterSupport, metadata *co
 		TickInterval:         tickInterval,
 		ElectionTick:         int(m.Options.ElectionTick),
 		HeartbeatTick:        int(m.Options.HeartbeatTick),
-		MaxInflightBlocks:    1, //int(m.Options.MaxInflightBlocks),
+		MaxInflightBlocks:    int(m.Options.MaxInflightBlocks),
 		MaxSizePerMsg:        uint64(support.SharedConfig().BatchSize().PreferredMaxBytes),
 		SnapshotIntervalSize: m.Options.SnapshotIntervalSize,
 

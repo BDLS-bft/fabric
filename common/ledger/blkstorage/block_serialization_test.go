@@ -9,11 +9,11 @@ package blkstorage
 import (
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/ledger/testutil"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 func TestBlockSerialization(t *testing.T) {
@@ -37,8 +37,7 @@ func TestBlockSerialization(t *testing.T) {
 		}),
 	})
 
-	bb, _, err := serializeBlock(block)
-	require.NoError(t, err)
+	bb, _ := serializeBlock(block)
 	deserializedBlock, err := deserializeBlock(bb)
 	require.NoError(t, err)
 	require.Equal(t, block, deserializedBlock)
@@ -74,7 +73,7 @@ func TestSerializedBlockInfo(t *testing.T) {
 		testSerializedBlockInfo(t, block, c)
 	})
 
-	t.Run("malformed tx-envelop for one of the transactions", func(t *testing.T) {
+	t.Run("malformed tx-envelope for one of the transactions", func(t *testing.T) {
 		block := testutil.ConstructTestBlock(t, 1, 10, 100)
 		// malformed Payload for
 		block.Data.Data[1] = protoutil.MarshalOrPanic(&common.Envelope{
@@ -87,8 +86,7 @@ func TestSerializedBlockInfo(t *testing.T) {
 }
 
 func testSerializedBlockInfo(t *testing.T, block *common.Block, c *testutilTxIDComputator) {
-	bb, info, err := serializeBlock(block)
-	require.NoError(t, err)
+	bb, info := serializeBlock(block)
 	infoFromBB, err := extractSerializedBlockInfo(bb)
 	require.NoError(t, err)
 	require.Equal(t, info, infoFromBB)
@@ -101,7 +99,10 @@ func testSerializedBlockInfo(t *testing.T, block *common.Block, c *testutilTxIDC
 
 		require.Equal(t, indexTxID, txid)
 		b := bb[indexOffset.offset:]
-		length, num := proto.DecodeVarint(b)
+		length, num := protowire.ConsumeVarint(b)
+		if num < 0 {
+			length, num = 0, 0
+		}
 		txEnvBytesFromBB := b[num : num+int(length)]
 		require.Equal(t, txEnvBytes, txEnvBytesFromBB)
 	}

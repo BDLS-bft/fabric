@@ -11,10 +11,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/hyperledger/fabric/common/metrics"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/metrics"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/core/common/ccprovider"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/cceventmgmt"
@@ -289,7 +289,8 @@ func (l *closableLedger) Close() {
 // this code should be later moved to peer and passed via `Initialize` function of ledgermgmt
 func addListenerForCCEventsHandler(
 	deployedCCInfoProvider ledger.DeployedChaincodeInfoProvider,
-	stateListeners []ledger.StateListener) []ledger.StateListener {
+	stateListeners []ledger.StateListener,
+) []ledger.StateListener {
 	return append(stateListeners, &cceventmgmt.KVLedgerLSCCStateListener{DeployedChaincodeInfoProvider: deployedCCInfoProvider})
 }
 
@@ -301,7 +302,8 @@ type chaincodeInfoProviderImpl struct {
 
 // GetDeployedChaincodeInfo implements function in the interface cceventmgmt.ChaincodeInfoProvider
 func (p *chaincodeInfoProviderImpl) GetDeployedChaincodeInfo(chainid string,
-	chaincodeDefinition *cceventmgmt.ChaincodeDefinition) (*ledger.DeployedChaincodeInfo, error) {
+	chaincodeDefinition *cceventmgmt.ChaincodeDefinition,
+) (*ledger.DeployedChaincodeInfo, error) {
 	ledger, err := p.ledgerMgr.getOpenedLedger(chainid)
 	if err != nil {
 		return nil, err

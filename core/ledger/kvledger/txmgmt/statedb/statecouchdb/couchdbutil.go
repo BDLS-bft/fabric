@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hyperledger/fabric/common/metrics"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
+	"github.com/hyperledger/fabric-lib-go/common/metrics"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/pkg/errors"
@@ -90,7 +90,7 @@ func createCouchInstance(config *ledger.CouchDBConfig, metricsProvider metrics.P
 	}
 
 	// return an error if the http return value is not 200
-	if retVal.StatusCode != 200 {
+	if retVal.StatusCode != http.StatusOK {
 		return nil, errors.Errorf("CouchDB connection error, expecting return code of 200, received %v", retVal.StatusCode)
 	}
 

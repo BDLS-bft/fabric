@@ -7,11 +7,14 @@ SPDX-License-Identifier: Apache-2.0
 package follower
 
 import (
+	"crypto/x509"
 	"encoding/pem"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/bccsp"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/common/deliverclient"
+
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
@@ -24,7 +27,7 @@ import (
 // ChannelPuller pulls blocks for a channel
 type ChannelPuller interface {
 	PullBlock(seq uint64) *common.Block
-	HeightsByEndpoints() (map[string]uint64, error)
+	HeightsByEndpoints() (map[string]uint64, string, error)
 	UpdateEndpoints(endpoints []cluster.EndpointCriteria)
 	Close()
 }
@@ -75,7 +78,7 @@ func NewBlockPullerCreator(
 	factory := &BlockPullerCreator{
 		channelID: channelID,
 		bccsp:     bccsp,
-		blockSigVerifierFactory: &cluster.BlockVerifierAssembler{
+		blockSigVerifierFactory: &deliverclient.BlockVerifierAssembler{
 			Logger: logger,
 			BCCSP:  bccsp,
 		},
@@ -98,11 +101,19 @@ func (creator *BlockPullerCreator) BlockPuller(configBlock *common.Block, stopCh
 		return nil, errors.WithMessage(err, "error extracting endpoints from config block")
 	}
 
+	logger := flogging.MustGetLogger("orderer.common.cluster.puller").With("channel", creator.channelID)
+
 	creator.JoinBlock = configBlock
 
+	myCert, err := x509.ParseCertificate(creator.der.Bytes)
+	if err != nil {
+		logger.Warnf("Failed parsing my own TLS certificate: %v, therefore we may connect to our own endpoint when pulling blocks", err)
+	}
+
 	bp := &cluster.BlockPuller{
+		MyOwnTLSCert:        myCert,
 		VerifyBlockSequence: creator.VerifyBlockSequence,
-		Logger:              flogging.MustGetLogger("orderer.common.cluster.puller").With("channel", creator.channelID),
+		Logger:              logger,
 		RetryTimeout:        creator.clusterConfig.ReplicationRetryTimeout,
 		MaxTotalBufferBytes: creator.clusterConfig.ReplicationBufferSize,
 		MaxPullBlockRetries: uint64(creator.clusterConfig.ReplicationMaxRetries),
@@ -121,7 +132,7 @@ func (creator *BlockPullerCreator) BlockPuller(configBlock *common.Block, stopCh
 // UpdateVerifierFromConfigBlock creates a new block signature verifier from the config block and updates the internal
 // link to said verifier.
 func (creator *BlockPullerCreator) UpdateVerifierFromConfigBlock(configBlock *common.Block) error {
-	configEnv, err := cluster.ConfigFromBlock(configBlock)
+	configEnv, err := deliverclient.ConfigFromBlock(configBlock)
 	if err != nil {
 		return errors.WithMessage(err, "failed to extract config envelope from block")
 	}
@@ -152,7 +163,7 @@ func (creator *BlockPullerCreator) VerifyBlockSequence(blocks []*common.Block, _
 			// with our own.
 			blocks[0] = creator.JoinBlock
 		}
-		configEnv, err := cluster.ConfigFromBlock(blocks[0])
+		configEnv, err := deliverclient.ConfigFromBlock(blocks[0])
 		if err != nil {
 			return errors.WithMessage(err, "failed to extract config envelope from genesis block")
 		}
@@ -168,7 +179,7 @@ func (creator *BlockPullerCreator) VerifyBlockSequence(blocks []*common.Block, _
 		}
 		// TODO: we should revisit this as in theory a malicious node can give an incorrect genesis block.
 		// However, if that happens, then the onboarding node would deviate from the correct nodes and it will be detected by us
-		// due to follower chain comparing the block it is joined with with the block it pulled by doing:
+		// due to follower chain comparing the block it is joined with the block it pulled by doing:
 		// if c.joinBlock != nil && !proto.Equal(c.ledgerResources.Block(c.joinBlock.Header.Number).Data, c.joinBlock.Data) {
 		//	c.logger.Panicf("Join block (%d) we pulled mismatches block we joined with", c.joinBlock.Header.Number)
 		// }

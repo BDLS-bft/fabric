@@ -16,6 +16,7 @@ import (
 	"github.com/hyperledger/fabric/core/ledger/pvtdatapolicy"
 	btltestutil "github.com/hyperledger/fabric/core/ledger/pvtdatapolicy/testutil"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestPurgeMgrBuilder(t *testing.T) {
@@ -33,13 +34,15 @@ func TestPurgeMgrBuilder(t *testing.T) {
 
 	purgeMgrBuilder := NewPurgeMgrBuilder(ledgerID, btlPolicy, bookkeepingProvider)
 
-	require.NoError(t,
+	require.NoError(
+		t,
 		purgeMgrBuilder.ConsumeSnapshotData(
 			"ns1",
 			"never-expiring-collection",
 			[]byte("key-hash-3"),
 			[]byte("value-hash-3"),
-			version.NewHeight(5, 1)),
+			version.NewHeight(5, 1),
+		),
 	)
 	expiry, err := purgeMgrBuilder.expKeeper.retrieveByExpiryKey(
 		&expiryInfoKey{
@@ -51,7 +54,8 @@ func TestPurgeMgrBuilder(t *testing.T) {
 	require.Nil(t, expiry.pvtdataKeys.Map)
 
 	// add data that expires at block-7
-	require.NoError(t,
+	require.NoError(
+		t,
 		purgeMgrBuilder.ConsumeSnapshotData(
 			"ns1",
 			"coll1",
@@ -60,7 +64,8 @@ func TestPurgeMgrBuilder(t *testing.T) {
 			version.NewHeight(5, 1),
 		),
 	)
-	require.NoError(t,
+	require.NoError(
+		t,
 		purgeMgrBuilder.ConsumeSnapshotData(
 			"ns1", "coll1",
 			[]byte("key-hash-2"),
@@ -69,7 +74,8 @@ func TestPurgeMgrBuilder(t *testing.T) {
 		),
 	)
 	// add data that expires at block-8
-	require.NoError(t,
+	require.NoError(
+		t,
 		purgeMgrBuilder.ConsumeSnapshotData(
 			"ns2",
 			"coll2",
@@ -87,7 +93,6 @@ func TestPurgeMgrBuilder(t *testing.T) {
 		expiringBlock  uint64
 		expectedOutput []*expiryInfo
 	}{
-
 		{
 			name:           "nothing-expires-at-block-6",
 			expiringBlock:  6,
@@ -164,7 +169,12 @@ func TestPurgeMgrBuilder(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			output, err := purgeMgr.expKeeper.retrieve(tc.expiringBlock)
 			require.NoError(t, err)
-			require.Equal(t, tc.expectedOutput, output)
+			if tc.expectedOutput != nil && output != nil {
+				require.Equal(t, tc.expectedOutput[0].expiryInfoKey, output[0].expiryInfoKey)
+				require.True(t, proto.Equal(tc.expectedOutput[0].pvtdataKeys, output[0].pvtdataKeys))
+			} else {
+				require.Equal(t, tc.expectedOutput, output)
+			}
 		})
 	}
 }

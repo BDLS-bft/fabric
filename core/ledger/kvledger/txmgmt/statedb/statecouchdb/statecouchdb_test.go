@@ -15,9 +15,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
 	"github.com/hyperledger/fabric/common/ledger/dataformat"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/internal/version"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/statedb"
@@ -89,7 +89,7 @@ func (env *testVDBEnv) cleanup() {
 	env.couchDBEnv.cleanup(env.config)
 }
 
-// testVDBEnv provides a couch db for testing
+// testCouchDBEnv provides a couch db for testing
 type testCouchDBEnv struct {
 	t              *testing.T
 	couchAddress   string
@@ -531,7 +531,8 @@ func TestUtilityFunctions(t *testing.T) {
 		testVal := fmt.Sprintf(`{"%s":"dummyVal"}`, reservedField)
 		err = db.ValidateKeyValue("testKey", []byte(testVal))
 		require.Error(t, err, fmt.Sprintf(
-			"ValidateKey should have thrown an error for a json value %s, as contains one of the reserved fields", testVal))
+			"ValidateKey should have thrown an error for a json value %s, as contains one of the reserved fields", testVal,
+		))
 	}
 
 	// ValidateKeyValue should not return an error for a json value that contains one of the reserved fields
@@ -540,7 +541,8 @@ func TestUtilityFunctions(t *testing.T) {
 		testVal := fmt.Sprintf(`{"data.%s":"dummyVal"}`, reservedField)
 		err = db.ValidateKeyValue("testKey", []byte(testVal))
 		require.NoError(t, err, fmt.Sprintf(
-			"ValidateKey should not have thrown an error the json value %s since the reserved field was not at the top level", testVal))
+			"ValidateKey should not have thrown an error the json value %s since the reserved field was not at the top level", testVal,
+		))
 	}
 
 	// ValidateKeyValue should return an error for a key that begins with an underscore
@@ -1110,7 +1112,8 @@ func TestFormatCheck(t *testing.T) {
 			fmt.Sprintf("testCase %d", i),
 			func(t *testing.T) {
 				testFormatCheck(t, testCase.dataFormat, testCase.dataExists, testCase.expectedErr, testCase.expectedFormat, vdbEnv)
-			})
+			},
+		)
 	}
 }
 
@@ -1370,7 +1373,7 @@ func TestChannelMetadata(t *testing.T) {
 
 	// call getNamespaceDBHandle for new dbs, verify that new db names are added to dbMetadataMapping
 	namepsaces := make([]string, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		ns := fmt.Sprintf("nsname_%d", i)
 		_, err := vdb.getNamespaceDBHandle(ns)
 		require.NoError(t, err)
@@ -1558,16 +1561,16 @@ func TestRangeQueryWithInternalLimitAndPageSize(t *testing.T) {
 			VersionedValue: &statedb.VersionedValue{Value: []byte("v0"), Version: ver, Metadata: []byte("m0")},
 		}
 		sampleData = append(sampleData, sampleKV)
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			sampleKV = &statedb.VersionedKV{
 				CompositeKey: &statedb.CompositeKey{
 					Namespace: "ns1",
 					Key:       fmt.Sprintf("key-%d", i),
 				},
 				VersionedValue: &statedb.VersionedValue{
-					Value:    []byte(fmt.Sprintf("value-for-key-%d-for-ns1", i)),
+					Value:    fmt.Appendf(nil, "value-for-key-%d-for-ns1", i),
 					Version:  ver,
-					Metadata: []byte(fmt.Sprintf("metadata-for-key-%d-for-ns1", i)),
+					Metadata: fmt.Appendf(nil, "metadata-for-key-%d-for-ns1", i),
 				},
 			}
 			sampleData = append(sampleData, sampleKV)
@@ -1877,7 +1880,7 @@ func TestFullScanIteratorDeterministicJSONOutput(t *testing.T) {
 	generateSampleData := func(ns string, sortedJSON bool) []*statedb.VersionedKV {
 		sampleData := []*statedb.VersionedKV{}
 		ver := version.NewHeight(1, 1)
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			sampleKV := &statedb.VersionedKV{
 				CompositeKey: &statedb.CompositeKey{
 					Namespace: ns,
@@ -1885,13 +1888,13 @@ func TestFullScanIteratorDeterministicJSONOutput(t *testing.T) {
 				},
 				VersionedValue: &statedb.VersionedValue{
 					Version:  ver,
-					Metadata: []byte(fmt.Sprintf("metadata-for-key-%d-for-ns1", i)),
+					Metadata: fmt.Appendf(nil, "metadata-for-key-%d-for-ns1", i),
 				},
 			}
 			if sortedJSON {
-				sampleKV.Value = []byte(fmt.Sprintf(`{"a":0,"b":0,"c":%d}`, i))
+				sampleKV.Value = fmt.Appendf(nil, `{"a":0,"b":0,"c":%d}`, i)
 			} else {
-				sampleKV.Value = []byte(fmt.Sprintf(`{"c":%d,"b":0,"a":0}`, i))
+				sampleKV.Value = fmt.Appendf(nil, `{"c":%d,"b":0,"a":0}`, i)
 			}
 			sampleData = append(sampleData, sampleKV)
 		}
@@ -1943,16 +1946,16 @@ func TestFullScanIteratorSkipInternalKeys(t *testing.T) {
 	generateSampleData := func(ns string, keys []string) []*statedb.VersionedKV {
 		sampleData := []*statedb.VersionedKV{}
 		ver := version.NewHeight(1, 1)
-		for i := 0; i < len(keys); i++ {
+		for i := range keys {
 			sampleKV := &statedb.VersionedKV{
 				CompositeKey: &statedb.CompositeKey{
 					Namespace: ns,
 					Key:       keys[i],
 				},
 				VersionedValue: &statedb.VersionedValue{
-					Value:    []byte(fmt.Sprintf("value-for-%s-for-ns1", keys[i])),
+					Value:    fmt.Appendf(nil, "value-for-%s-for-ns1", keys[i]),
 					Version:  ver,
-					Metadata: []byte(fmt.Sprintf("metadata-for-%s-for-ns1", keys[i])),
+					Metadata: fmt.Appendf(nil, "metadata-for-%s-for-ns1", keys[i]),
 				},
 			}
 			sampleData = append(sampleData, sampleKV)

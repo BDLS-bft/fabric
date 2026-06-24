@@ -9,31 +9,32 @@ package smartbft
 import (
 	"fmt"
 
-	mspa "github.com/hyperledger/fabric-protos-go/msp"
-	"github.com/hyperledger/fabric/common/policies"
-	"github.com/hyperledger/fabric/common/policydsl"
-
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/msp"
+	protosorderer "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer/smartbft"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/configtx"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/common/policies"
+	"github.com/hyperledger/fabric/common/policydsl"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:generate mockery -dir . -name Filters -case underscore -output mocks
 
 // Filters applies the filters on the outer envelope
 type Filters interface {
-	ApplyFilters(channel string, env *cb.Envelope) error
+	ApplyFilters(channel string, env *common.Envelope) error
 }
 
 //go:generate mockery -dir . -name ConfigUpdateProposer -case underscore -output mocks
 
 // ConfigUpdateProposer produces a ConfigEnvelope
 type ConfigUpdateProposer interface {
-	ProposeConfigUpdate(channel string, configtx *cb.Envelope) (*cb.ConfigEnvelope, error)
+	ProposeConfigUpdate(channel string, configtx *common.Envelope) (*common.ConfigEnvelope, error)
 }
 
 //go:generate mockery -dir . -name Bundle -case underscore -output mocks
@@ -59,7 +60,7 @@ type ConfigBlockValidator struct {
 }
 
 // ValidateConfig validates config from envelope
-func (cbv *ConfigBlockValidator) ValidateConfig(envelope *cb.Envelope) error {
+func (cbv *ConfigBlockValidator) ValidateConfig(envelope *common.Envelope) error {
 	payload, err := protoutil.UnmarshalPayload(envelope.Payload)
 	if err != nil {
 		return err
@@ -79,18 +80,18 @@ func (cbv *ConfigBlockValidator) ValidateConfig(envelope *cb.Envelope) error {
 	}
 
 	switch chdr.Type {
-	case int32(cb.HeaderType_CONFIG):
-		configEnvelope := &cb.ConfigEnvelope{}
+	case int32(common.HeaderType_CONFIG):
+		configEnvelope := &common.ConfigEnvelope{}
 		if err = proto.Unmarshal(payload.Data, configEnvelope); err != nil {
 			return fmt.Errorf("data unmarshalling error: %s", err)
 		}
 		return cbv.verifyConfigUpdateMsg(envelope, configEnvelope, chdr)
 	default:
-		return errors.Errorf("unexpected envelope type %s", cb.HeaderType_name[chdr.Type])
+		return errors.Errorf("unexpected envelope type %s", common.HeaderType_name[chdr.Type])
 	}
 }
 
-func (cbv *ConfigBlockValidator) checkConsentersMatchPolicy(conf *cb.Config) error {
+func (cbv *ConfigBlockValidator) checkConsentersMatchPolicy(conf *common.Config) error {
 	if conf == nil {
 		return fmt.Errorf("empty Config")
 	}
@@ -115,7 +116,7 @@ func (cbv *ConfigBlockValidator) checkConsentersMatchPolicy(conf *cb.Config) err
 		return fmt.Errorf("no values in 'Orderer' group")
 	}
 
-	ords := &cb.Orderers{}
+	ords := &common.Orderers{}
 	if err := proto.Unmarshal(conf.ChannelGroup.Groups["Orderer"].Values["Orderers"].Value, ords); err != nil {
 		return err
 	}
@@ -123,35 +124,35 @@ func (cbv *ConfigBlockValidator) checkConsentersMatchPolicy(conf *cb.Config) err
 	n := len(ords.ConsenterMapping)
 	f := (n - 1) / 3
 
-	var identities []*mspa.MSPPrincipal
-	var pols []*cb.SignaturePolicy
+	var identities []*msp.MSPPrincipal
+	var pols []*common.SignaturePolicy
 	for i, consenter := range ords.ConsenterMapping {
 		if consenter == nil {
 			return fmt.Errorf("consenter %d in the mapping is empty", i)
 		}
-		pols = append(pols, &cb.SignaturePolicy{
-			Type: &cb.SignaturePolicy_SignedBy{
+		pols = append(pols, &common.SignaturePolicy{
+			Type: &common.SignaturePolicy_SignedBy{
 				SignedBy: int32(i),
 			},
 		})
-		identities = append(identities, &mspa.MSPPrincipal{
-			PrincipalClassification: mspa.MSPPrincipal_IDENTITY,
-			Principal:               protoutil.MarshalOrPanic(&mspa.SerializedIdentity{Mspid: consenter.MspId, IdBytes: consenter.Identity}),
+		identities = append(identities, &msp.MSPPrincipal{
+			PrincipalClassification: msp.MSPPrincipal_IDENTITY,
+			Principal:               protoutil.MarshalOrPanic(&msp.SerializedIdentity{Mspid: consenter.MspId, IdBytes: consenter.Identity}),
 		})
 	}
 
 	quorumSize := policies.ComputeBFTQuorum(n, f)
-	sp := &cb.SignaturePolicyEnvelope{
+	sp := &common.SignaturePolicyEnvelope{
 		Rule:       policydsl.NOutOf(int32(quorumSize), pols),
 		Identities: identities,
 	}
 
-	expectedConfigPol := &cb.Policy{
-		Type:  int32(cb.Policy_SIGNATURE),
+	expectedConfigPol := &common.Policy{
+		Type:  int32(common.Policy_SIGNATURE),
 		Value: protoutil.MarshalOrPanic(sp),
 	}
 
-	if conf.ChannelGroup.Groups["Orderer"].Policies == nil || len(conf.ChannelGroup.Groups["Orderer"].Policies) == 0 {
+	if len(conf.ChannelGroup.Groups["Orderer"].Policies) == 0 {
 		return fmt.Errorf("empty policies in 'Orderer' group")
 	}
 
@@ -165,10 +166,30 @@ func (cbv *ConfigBlockValidator) checkConsentersMatchPolicy(conf *cb.Config) err
 		return fmt.Errorf("block validation policy should be a signature policy: %v but it is %v instead", expectedConfigPol, actualPolicy)
 	}
 
+	consensusTypeConfigValue := conf.ChannelGroup.Groups["Orderer"].Values["ConsensusType"]
+
+	if consensusTypeConfigValue == nil {
+		return fmt.Errorf("missing consensus type property in config")
+	}
+
+	consensusTypeValue := &protosorderer.ConsensusType{}
+	if err := proto.Unmarshal(consensusTypeConfigValue.Value, consensusTypeValue); err != nil {
+		return fmt.Errorf("invalid consensus type property in config: %v", err)
+	}
+
+	configOptions := &smartbft.Options{}
+	if err := proto.Unmarshal(consensusTypeValue.Metadata, configOptions); err != nil {
+		return fmt.Errorf("invalid options encoded in consensus metadata: %v", err)
+	}
+
+	if configOptions.LeaderRotation == smartbft.Options_ROTATION_ON {
+		return fmt.Errorf("leader rotation must be turned off for this version or be unspecified")
+	}
+
 	return nil
 }
 
-func (cbv *ConfigBlockValidator) verifyConfigUpdateMsg(outEnv *cb.Envelope, confEnv *cb.ConfigEnvelope, chdr *cb.ChannelHeader) error {
+func (cbv *ConfigBlockValidator) verifyConfigUpdateMsg(outEnv *common.Envelope, confEnv *common.ConfigEnvelope, chdr *common.ChannelHeader) error {
 	if confEnv == nil || confEnv.LastUpdate == nil || confEnv.Config == nil {
 		return errors.New("invalid config envelope")
 	}
@@ -185,7 +206,7 @@ func (cbv *ConfigBlockValidator) verifyConfigUpdateMsg(outEnv *cb.Envelope, conf
 		return errors.New("inner channelheader is nil")
 	}
 
-	typ := cb.HeaderType(chdr.Type)
+	typ := common.HeaderType(chdr.Type)
 
 	cbv.Logger.Infof("Applying filters for config update of type %s to channel %s", typ, chdr.ChannelId)
 
@@ -194,7 +215,7 @@ func (cbv *ConfigBlockValidator) verifyConfigUpdateMsg(outEnv *cb.Envelope, conf
 		return err
 	}
 
-	var expectedConfigEnv *cb.ConfigEnvelope
+	var expectedConfigEnv *common.ConfigEnvelope
 	channelID, err := protoutil.ChannelID(confEnv.LastUpdate)
 	if err != nil {
 		return errors.Errorf("error extracting channel ID from config update")

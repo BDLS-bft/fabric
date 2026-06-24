@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hyperledger/fabric-lib-go/common/metrics"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/metricsfakes"
 	"github.com/hyperledger/fabric/common/ledger/testutil"
-	"github.com/hyperledger/fabric/common/metrics"
-	"github.com/hyperledger/fabric/common/metrics/metricsfakes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -99,17 +99,19 @@ func TestStatsBlockCommit(t *testing.T) {
 	require.Equal(t, expectedCallCount, fakeBlockstorageCommitTimeHist.ObserveCallCount())
 
 	// verify the value of channel in each call (0, 1, 2, 3)
-	for i := 0; i < expectedCallCount; i++ {
+	for i := range expectedCallCount {
 		require.Equal(t, []string{"channel", ledgerid}, fakeBlockstorageCommitTimeHist.WithArgsForCall(i))
 	}
 
 	// invoke updateBlockStats api explicitly and verify with fake metrics (call number is 4)
 	store.updateBlockStats(4, 10*time.Second)
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", ledgerid},
 		testMetricProvider.fakeBlockstorageCommitTimeHist.WithArgsForCall(4),
 	)
-	require.Equal(t,
+	require.Equal(
+		t,
 		float64(10),
 		testMetricProvider.fakeBlockstorageCommitTimeHist.ObserveArgsForCall(4),
 	)

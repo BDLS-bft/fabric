@@ -9,10 +9,10 @@ package blkstorage
 import (
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/ledger/testutil"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 func TestBlockfileStream(t *testing.T) {
@@ -53,7 +53,7 @@ func testBlockfileStream(t *testing.T, numBlocks int) {
 func TestBlockFileStreamUnexpectedEOF(t *testing.T) {
 	partialBlockBytes := []byte{}
 	dummyBlockBytes := testutil.ConstructRandomBytes(t, 100)
-	lenBytes := proto.EncodeVarint(uint64(len(dummyBlockBytes)))
+	lenBytes := protowire.AppendVarint(nil, uint64(len(dummyBlockBytes)))
 	partialBlockBytes = append(partialBlockBytes, lenBytes...)
 	partialBlockBytes = append(partialBlockBytes, dummyBlockBytes...)
 	testBlockFileStreamUnexpectedEOF(t, 10, partialBlockBytes[:1])
@@ -75,7 +75,7 @@ func testBlockFileStreamUnexpectedEOF(t *testing.T, numBlocks int, partialBlockB
 	defer s.close()
 	require.NoError(t, err, "Error in constructing blockfile stream")
 
-	for i := 0; i < numBlocks; i++ {
+	for range numBlocks {
 		blockBytes, err := s.nextBlockBytes()
 		require.NotNil(t, blockBytes)
 		require.NoError(t, err, "Error in getting next block")
@@ -102,7 +102,7 @@ func testBlockStream(t *testing.T, numFiles int) {
 	numBlocksInEachFile := 10
 	bg, gb := testutil.NewBlockGenerator(t, ledgerID, false)
 	w.addBlocks([]*common.Block{gb})
-	for i := 0; i < numFiles; i++ {
+	for i := range numFiles {
 		numBlocks := numBlocksInEachFile
 		if i == 0 {
 			// genesis block already added so adding one less block

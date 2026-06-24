@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	proto "github.com/hyperledger/fabric-protos-go/gossip"
+	proto "github.com/hyperledger/fabric-protos-go-apiv2/gossip"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/gossip/common"
@@ -73,7 +73,8 @@ func (p *peerMock) Ping(context.Context, *proto.Empty) (*proto.Empty, error) {
 }
 
 func newPeerMockWithGRPC(port int, gRPCServer *comm.GRPCServer, certs *common.TLSCertificates,
-	expectedMsgs2Receive int, t *testing.T, msgAssertions ...msgInspection) *peerMock {
+	expectedMsgs2Receive int, t *testing.T, msgAssertions ...msgInspection,
+) *peerMock {
 	p := &peerMock{
 		gRGCserv:             gRPCServer.Server(),
 		msgAssertions:        msgAssertions,

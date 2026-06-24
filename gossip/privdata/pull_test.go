@@ -12,11 +12,10 @@ import (
 	"sync"
 	"testing"
 
-	pb "github.com/golang/protobuf/proto"
-	proto "github.com/hyperledger/fabric-protos-go/gossip"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	proto "github.com/hyperledger/fabric-protos-go-apiv2/gossip"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/core/common/privdata"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/transientstore"
@@ -35,6 +34,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	pb "google.golang.org/protobuf/proto"
 )
 
 func init() {
@@ -285,7 +285,8 @@ type gossipNetwork struct {
 }
 
 func (gn *gossipNetwork) newPullerWithMetrics(metrics *metrics.PrivdataMetrics, id string, ps privdata.CollectionStore,
-	factory CollectionAccessFactory, knownMembers ...discovery.NetworkMember) *puller {
+	factory CollectionAccessFactory, knownMembers ...discovery.NetworkMember,
+) *puller {
 	g := newMockGossip(&comm.RemotePeer{PKIID: common.PKIidType(id), Endpoint: id})
 	g.network = gn
 	g.On("PeersOfChannel", mock.Anything).Return(knownMembers)
@@ -296,7 +297,8 @@ func (gn *gossipNetwork) newPullerWithMetrics(metrics *metrics.PrivdataMetrics, 
 }
 
 func (gn *gossipNetwork) newPuller(id string, ps privdata.CollectionStore, factory CollectionAccessFactory,
-	knownMembers ...discovery.NetworkMember) *puller {
+	knownMembers ...discovery.NetworkMember,
+) *puller {
 	metrics := metrics.NewGossipMetrics(&disabled.Provider{}).PrivdataMetrics
 	return gn.newPullerWithMetrics(metrics, id, ps, factory, knownMembers...)
 }
@@ -1027,7 +1029,7 @@ func TestPullerAvoidPullingPurgedData(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, 1, len(fetchedMessages.PurgedElements))
-	require.Equal(t, dig1, fetchedMessages.PurgedElements[0])
+	require.True(t, pb.Equal(dig1, fetchedMessages.PurgedElements[0]))
 	p3.PrivateDataRetriever.(*dataRetrieverMock).AssertNumberOfCalls(t, "CollectionRWSet", 1)
 }
 
@@ -1209,12 +1211,14 @@ func TestPullerMetrics(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, p2TransientStore.RWSet, fetched)
 
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", "A"},
 		testMetricProvider.FakePullDuration.WithArgsForCall(0),
 	)
 	require.True(t, testMetricProvider.FakePullDuration.ObserveArgsForCall(0) > 0)
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", "A"},
 		testMetricProvider.FakeRetrieveDuration.WithArgsForCall(0),
 	)

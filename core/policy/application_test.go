@@ -9,8 +9,8 @@ package policy
 import (
 	"testing"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/cauthdsl"
 	"github.com/hyperledger/fabric/common/policydsl"
 	"github.com/hyperledger/fabric/core/policy/mocks"
@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestComponentIntegrationSignaturePolicyEnv(t *testing.T) {
@@ -80,9 +81,11 @@ func TestEvaluator(t *testing.T) {
 	// SCENARIO: signature policy supplied - good and bad path
 
 	spenv := &common.SignaturePolicyEnvelope{}
+	spenvTmp, ok := proto.Clone(spenv).(*common.SignaturePolicyEnvelope)
+	require.True(t, ok)
 	mspenv := protoutil.MarshalOrPanic(&peer.ApplicationPolicy{
 		Type: &peer.ApplicationPolicy_SignaturePolicy{
-			SignaturePolicy: spenv,
+			SignaturePolicy: spenvTmp,
 		},
 	})
 	spp.On("NewPolicy", spenv).Return(okEval, nil).Once()
