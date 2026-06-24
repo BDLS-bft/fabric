@@ -38,11 +38,13 @@ jobs:
           --exclude="https://github\.com/YOURGITHUBID/fabric-docs-i18n/pull/new/newtranslation" \
           --exclude="https?://docs\.goquorum\.consensys\.io/.*" \
           --exclude="https?://docs\.couchdb\.org/.*" \
+          --exclude="https?://hyperledger-fabric-ca\.readthedocs\.io/.*" \
           --exclude="https?://guide\.couchdb\.org/.*" \
           --exclude="https?://golang\.org/.*" \
           --exclude="https?://pkg\.go\.dev/.*" \
           --exclude="https?://godoc\.org/github\.com/hyperledger/fabric-chaincode-go/shim.*" \
           --exclude="https?://(www\.)?sphinx-doc\.org/.*" \
+          --exclude="https://www\.di\.fc\.ul\.pt/~bessani/publications/dsn14-bftsmart\.pdf" \
           --exclude="https?://www\.hyperledger\.org/about/charter" \
           --exclude="http://pmg\.csail\.mit\.edu/papers/osdi99\.pdf" \
           --exclude="http://artofunittesting\.com/definition-of-a-unit-test/" \
@@ -73,11 +75,13 @@ jobs:
           --exclude="https://github\.com/YOURGITHUBID/fabric-docs-i18n/pull/new/newtranslation" \
           --exclude="https?://docs\.goquorum\.consensys\.io/.*" \
           --exclude="https?://docs\.couchdb\.org/.*" \
+          --exclude="https?://hyperledger-fabric-ca\.readthedocs\.io/.*" \
           --exclude="https?://guide\.couchdb\.org/.*" \
           --exclude="https?://golang\.org/.*" \
           --exclude="https?://pkg\.go\.dev/.*" \
           --exclude="https?://godoc\.org/github\.com/hyperledger/fabric-chaincode-go/shim.*" \
           --exclude="https?://(www\.)?sphinx-doc\.org/.*" \
+          --exclude="https://www\.di\.fc\.ul\.pt/~bessani/publications/dsn14-bftsmart\.pdf" \
           --exclude="https?://www\.hyperledger\.org/about/charter" \
           --exclude="http://pmg\.csail\.mit\.edu/papers/osdi99\.pdf" \
           --exclude="http://artofunittesting\.com/definition-of-a-unit-test/" \

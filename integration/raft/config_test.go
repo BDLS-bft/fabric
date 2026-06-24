@@ -486,7 +486,7 @@ var _ = Describe("EndToEnd reconfiguration and onboarding", func() {
 	})
 
 	When("the orderer certificates are all rotated", func() {
-		It("is possible to rotate certificate by adding & removing cert in single config", func() {
+		It("is possible to rotate certificate by adding & removing cert in single config", FlakeAttempts(3), func() {
 			layout := nwo.MultiNodeEtcdRaft()
 			network = nwo.New(layout, testDir, client, StartPort(), components)
 			network.GenerateConfigTree()

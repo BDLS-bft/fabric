@@ -91,6 +91,8 @@ func resetFlags() {
 		"Version of the chaincode specified in install/instantiate/upgrade commands")
 	flags.StringVarP(&channelID, "channelID", "C", "",
 		"The channel on which this command should be executed")
+	flags.BoolVar(&getInstalledChaincodes, "installed", false, "Get the installed chaincodes on a peer")
+	flags.BoolVar(&getInstantiatedChaincodes, "instantiated", false, "Get the instantiated chaincodes on a channel")
 	flags.BoolVarP(&isInit, "isInit", "I", false,
 		"Is this invocation for init (useful for supporting legacy chaincodes in the new lifecycle)")
 	flags.StringArrayVarP(&peerAddresses, "peerAddresses", "", []string{common.UndefinedParamValue},
