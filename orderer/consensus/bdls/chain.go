@@ -21,20 +21,19 @@ import (
 
 	"code.cloudfoundry.org/clock"
 	"github.com/BDLS-bft/bdls"
-	"github.com/hyperledger/fabric-protos-go/common"
+	oldproto "github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 
-	// cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/orderer"
+	// cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
 
 	types2 "github.com/hyperledger/fabric/orderer/common/types"
 
-	//"google.golang.org/protobuf/proto"
-	"github.com/golang/protobuf/proto"
-	//"github.com/hyperledger/fabric-protos-go/msp"
-	//"github.com/hyperledger/fabric-protos-go/orderer/etcdraft"
-	"github.com/hyperledger/fabric/bccsp"
-	"github.com/hyperledger/fabric/common/flogging"
+	//"github.com/hyperledger/fabric-protos-go-apiv2/msp"
+	//"github.com/hyperledger/fabric-protos-go-apiv2/orderer/etcdraft"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/consensus"
@@ -53,7 +52,7 @@ type ConfigValidator interface {
 
 type BlockPuller interface {
 	PullBlock(seq uint64) *common.Block
-	HeightsByEndpoints() (map[string]uint64, error)
+	HeightsByEndpoints() (map[string]uint64, string, error)
 	Close()
 }
 
@@ -423,7 +422,7 @@ func (c *Chain) remotePeers() ([]cluster.RemoteNode, error) {
 // HandleMessage handles the message from the sender
 func (c *Chain) HandleMessage(sender uint64, m *bdls.Message /**smartbftprotos.Message*/) {
 	c.Logger.Debugf("Message from %d", sender)
-	date, err := proto.Marshal(m)
+	date, err := oldproto.Marshal(m)
 	if err != nil {
 		c.Logger.Info(err)
 	}

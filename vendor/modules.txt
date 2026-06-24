@@ -2,10 +2,6 @@
 ## explicit; go 1.22.0
 code.cloudfoundry.org/clock
 code.cloudfoundry.org/clock/fakeclock
-# github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c
-## explicit; go 1.16
-github.com/Azure/go-ansiterm
-github.com/Azure/go-ansiterm/winterm
 # github.com/BDLS-bft/bdls v0.0.0-20250707052704-d39e50d25611
 ## explicit; go 1.17
 github.com/BDLS-bft/bdls
@@ -54,10 +50,6 @@ github.com/Microsoft/go-winio/internal/fs
 github.com/Microsoft/go-winio/internal/socket
 github.com/Microsoft/go-winio/internal/stringbuffer
 github.com/Microsoft/go-winio/pkg/guid
-# github.com/SmartBFT-Go/consensus v0.3.0
-## explicit; go 1.16
-github.com/SmartBFT-Go/consensus/pkg/types
-github.com/SmartBFT-Go/consensus/smartbftprotos
 # github.com/VictoriaMetrics/fastcache v1.12.2
 ## explicit; go 1.13
 github.com/VictoriaMetrics/fastcache
@@ -115,9 +107,6 @@ github.com/containerd/errdefs
 ## explicit; go 1.22
 github.com/containerd/errdefs/pkg/errhttp
 github.com/containerd/errdefs/pkg/internal/cause
-# github.com/containerd/log v0.1.0
-## explicit; go 1.20
-github.com/containerd/log
 # github.com/coreos/go-semver v0.3.1
 ## explicit; go 1.8
 github.com/coreos/go-semver/semver
@@ -168,9 +157,6 @@ github.com/felixge/httpsnoop
 ## explicit; go 1.17
 github.com/fsnotify/fsnotify
 github.com/fsnotify/fsnotify/internal
-# github.com/fsouza/go-dockerclient v1.13.2
-## explicit; go 1.25.5
-github.com/fsouza/go-dockerclient
 # github.com/go-kit/kit v0.13.0
 ## explicit; go 1.17
 github.com/go-kit/kit/metrics
@@ -207,10 +193,6 @@ github.com/gogo/protobuf/protoc-gen-gogo/descriptor
 # github.com/golang/protobuf v1.5.4
 ## explicit; go 1.17
 github.com/golang/protobuf/proto
-github.com/golang/protobuf/ptypes
-github.com/golang/protobuf/ptypes/any
-github.com/golang/protobuf/ptypes/duration
-github.com/golang/protobuf/ptypes/timestamp
 # github.com/golang/snappy v0.0.4
 ## explicit
 github.com/golang/snappy
@@ -252,11 +234,6 @@ github.com/hyperledger/fabric-amcl/amcl
 github.com/hyperledger/fabric-amcl/amcl/FP256BN
 github.com/hyperledger/fabric-amcl/core
 github.com/hyperledger/fabric-amcl/core/FP256BN
-# github.com/hyperledger/fabric-chaincode-go v0.0.0-20240704073638-9fb89180dc17
-## explicit; go 1.21.0
-github.com/hyperledger/fabric-chaincode-go/shim
-github.com/hyperledger/fabric-chaincode-go/shim/internal
-github.com/hyperledger/fabric-chaincode-go/shimtest
 # github.com/hyperledger/fabric-chaincode-go/v2 v2.3.0
 ## explicit; go 1.22.0
 github.com/hyperledger/fabric-chaincode-go/v2/pkg/statebased
@@ -297,17 +274,6 @@ github.com/hyperledger/fabric-lib-go/common/metrics/prometheus
 github.com/hyperledger/fabric-lib-go/common/metrics/statsd
 github.com/hyperledger/fabric-lib-go/common/metrics/statsd/goruntime
 github.com/hyperledger/fabric-lib-go/healthz
-# github.com/hyperledger/fabric-protos-go v0.3.7
-## explicit; go 1.22.0
-github.com/hyperledger/fabric-protos-go/common
-github.com/hyperledger/fabric-protos-go/gossip
-github.com/hyperledger/fabric-protos-go/ledger/queryresult
-github.com/hyperledger/fabric-protos-go/ledger/rwset
-github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset
-github.com/hyperledger/fabric-protos-go/msp
-github.com/hyperledger/fabric-protos-go/orderer
-github.com/hyperledger/fabric-protos-go/orderer/smartbft
-github.com/hyperledger/fabric-protos-go/peer
 # github.com/hyperledger/fabric-protos-go-apiv2 v0.3.7
 ## explicit; go 1.22.0
 github.com/hyperledger/fabric-protos-go-apiv2/common
@@ -364,14 +330,8 @@ github.com/mitchellh/mapstructure
 # github.com/moby/docker-image-spec v1.3.1
 ## explicit; go 1.18
 github.com/moby/docker-image-spec/specs-go/v1
-# github.com/moby/go-archive v0.2.0
-## explicit; go 1.23.0
-github.com/moby/go-archive
-github.com/moby/go-archive/compression
-github.com/moby/go-archive/tarheader
 # github.com/moby/moby/api v1.54.2
 ## explicit; go 1.24
-github.com/moby/moby/api/pkg/stdcopy
 github.com/moby/moby/api/types
 github.com/moby/moby/api/types/blkiodev
 github.com/moby/moby/api/types/build
@@ -395,24 +355,7 @@ github.com/moby/moby/client
 github.com/moby/moby/client/internal
 github.com/moby/moby/client/internal/mod
 github.com/moby/moby/client/internal/timestamp
-github.com/moby/moby/client/pkg/jsonmessage
 github.com/moby/moby/client/pkg/versions
-# github.com/moby/patternmatcher v0.6.1
-## explicit; go 1.19
-github.com/moby/patternmatcher
-# github.com/moby/sys/sequential v0.6.0
-## explicit; go 1.17
-github.com/moby/sys/sequential
-# github.com/moby/sys/user v0.4.0
-## explicit; go 1.17
-github.com/moby/sys/user
-# github.com/moby/sys/userns v0.1.0
-## explicit; go 1.21
-github.com/moby/sys/userns
-# github.com/moby/term v0.5.2
-## explicit; go 1.18
-github.com/moby/term
-github.com/moby/term/windows
 # github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
 ## explicit
 github.com/munnerz/goautoneg
@@ -507,9 +450,6 @@ github.com/rogpeppe/go-internal/fmtsort
 # github.com/sagikazarmark/locafero v0.7.0
 ## explicit; go 1.21
 github.com/sagikazarmark/locafero
-# github.com/sirupsen/logrus v1.9.4
-## explicit; go 1.17
-github.com/sirupsen/logrus
 # github.com/sourcegraph/conc v0.3.0
 ## explicit; go 1.19
 github.com/sourcegraph/conc

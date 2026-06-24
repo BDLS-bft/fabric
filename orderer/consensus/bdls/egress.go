@@ -9,12 +9,12 @@ package bdls
 import (
 	"sync/atomic"
 
-	// protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
+	// protos "github.com/hyperledger-labs/SmartBFT/smartbftprotos"
 	"github.com/BDLS-bft/bdls"
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	ab "github.com/hyperledger/fabric-protos-go/orderer"
-	"github.com/hyperledger/fabric/protoutil"
+	oldproto "github.com/golang/protobuf/proto"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	ab "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:generate mockery -dir . -name RPC -case underscore -output mocks
@@ -80,7 +80,15 @@ func (e *Egress) SendTransaction(targetID uint64, request []byte) {
 
 func bftMsgToClusterMsg(message *bdls.Message, channel string) *ab.ConsensusRequest {
 	return &ab.ConsensusRequest{
-		Payload: protoutil.MarshalOrPanic(message),
+		Payload: marshalBDLSMessageOrPanic(message),
 		Channel: channel,
 	}
+}
+
+func marshalBDLSMessageOrPanic(message *bdls.Message) []byte {
+	bytes, err := oldproto.Marshal(message)
+	if err != nil {
+		panic(err)
+	}
+	return bytes
 }

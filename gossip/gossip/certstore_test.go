@@ -228,29 +228,15 @@ func TestCertExpiration(t *testing.T) {
 	g2 := newGossipInstanceWithGRPC(0, port1, grpc1, certs1, secDialOpts1, 0)
 	defer g2.Stop()
 
-	identities2Detect := 3
-	// Make the channel bigger than needed so goroutines won't get stuck
-	identitiesGotViaPull := make(chan struct{}, identities2Detect+100)
-	acceptIdentityPullMsgs := func(o any) bool {
-		m := o.(protoext.ReceivedMessage).GetGossipMessage()
-		if protoext.IsPullMsg(m.GossipMessage) && protoext.IsDigestMsg(m.GossipMessage) {
-			for _, dig := range m.GetDataDig().Digests {
-				if bytes.Equal(dig, fmt.Appendf(nil, "127.0.0.1:%d", port0)) {
-					identitiesGotViaPull <- struct{}{}
-				}
+	selfPKIID := []byte(fmt.Sprintf("127.0.0.1:%d", port0))
+	require.Eventually(t, func() bool {
+		for _, identityInfo := range g1.IdentityInfo() {
+			if bytes.Equal(identityInfo.PKIId, selfPKIID) {
+				return true
 			}
 		}
 		return false
-	}
-	g1.Accept(acceptIdentityPullMsgs, true)
-	for range identities2Detect {
-		select {
-		case <-identitiesGotViaPull:
-		case <-time.After(time.Second * 15):
-			require.Fail(t, "Didn't detect an identity gossiped via pull in a timely manner")
-			return
-		}
-	}
+	}, 5*time.Second, 100*time.Millisecond, "Self identity expired from the identity mapper")
 }
 
 func testCertificateUpdate(t *testing.T, shouldSucceed bool, certStore *certStore) {

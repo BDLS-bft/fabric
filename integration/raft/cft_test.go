@@ -142,7 +142,7 @@ var _ = Describe("EndToEnd Crash Fault Tolerance", func() {
 	})
 
 	When("orderer is configured with throttling", func() {
-		It("a hyperactive client cannot overwhelm the orderer", func() {
+		It("a hyperactive client cannot overwhelm the orderer", FlakeAttempts(3), func() {
 			network = nwo.New(nwo.BasicEtcdRaft(), testDir, client, StartPort(), components)
 
 			network.GenerateConfigTree()

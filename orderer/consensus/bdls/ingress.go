@@ -7,10 +7,10 @@ SPDX-License-Identifier: Apache-2.0
 package bdls
 
 import (
-	// protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
+	// protos "github.com/hyperledger-labs/SmartBFT/smartbftprotos"
 	protos "github.com/BDLS-bft/bdls"
-	"github.com/golang/protobuf/proto"
-	ab "github.com/hyperledger/fabric-protos-go/orderer"
+	oldproto "github.com/golang/protobuf/proto"
+	ab "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
@@ -49,7 +49,7 @@ func (in *Ingress) OnConsensus(channel string, sender uint64, request *ab.Consen
 		return errors.Errorf("channel %s doesn't exist", channel)
 	}
 	msg := &protos.Message{}
-	if err := proto.Unmarshal(request.Payload, msg); err != nil {
+	if err := oldproto.Unmarshal(request.Payload, msg); err != nil {
 		in.Logger.Warningf("Malformed message: %v", err)
 		return errors.Wrap(err, "malformed message")
 	}

@@ -7,8 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package bdls
 
 import (
-	"github.com/SmartBFT-Go/consensus/pkg/types"
-	cb "github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger-labs/SmartBFT/pkg/types"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/protoutil"
