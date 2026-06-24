@@ -48,7 +48,7 @@ require (
 	github.com/BDLS-bft/bdls v0.0.0-20250707052704-d39e50d25611
 	github.com/SmartBFT-Go/consensus v0.3.0
 	github.com/fsouza/go-dockerclient v1.13.2
-	github.com/gogo/protobuf v1.3.2
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4
 	github.com/hyperledger/fabric-chaincode-go v0.0.0-20240704073638-9fb89180dc17
 	github.com/hyperledger/fabric-protos-go v0.3.7

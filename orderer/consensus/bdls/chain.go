@@ -737,7 +737,7 @@ func (c *Chain) run() {
 	c.blockInflight = 0
 
 	// var bc *blockCreator
-	// No need to create Var for bc, BFT type Orderer intialaize the blockCreator in each node participent
+	// No need to create Var for bc, BFT type Orderer intialaize the blockCreator in each node participant
 	bc := &blockCreator{
 		hash:   protoutil.BlockHeaderHash(c.lastBlock.Header),
 		number: c.lastBlock.Header.Number,
