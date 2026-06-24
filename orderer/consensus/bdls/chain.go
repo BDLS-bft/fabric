@@ -1,5 +1,5 @@
 /*
-Copyright Ahmed Al Salih. All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
 SPDX-License-Identifier: Apache-2.0
 */
@@ -8,719 +8,555 @@ package bdls
 
 import (
 	"bytes"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/x509"
-	"encoding/pem"
+	"crypto/sha256"
+	"encoding/binary"
+	"errors"
 	"fmt"
-	"math/big"
-	"net"
+	"os"
+	"sort"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
-	"code.cloudfoundry.org/clock"
-	"github.com/BDLS-bft/bdls"
-	"github.com/hyperledger/fabric-protos-go/common"
-
-	//cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/orderer"
-	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
-
-	types2 "github.com/hyperledger/fabric/orderer/common/types"
-
-	//"google.golang.org/protobuf/proto"
-	"github.com/golang/protobuf/proto"
-	//"github.com/hyperledger/fabric-protos-go/msp"
-	//"github.com/hyperledger/fabric-protos-go/orderer/etcdraft"
-	"github.com/hyperledger/fabric/bccsp"
-	"github.com/hyperledger/fabric/common/flogging"
+	bdlslib "github.com/BDLS-bft/bdls"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/common/policies"
-	"github.com/hyperledger/fabric/orderer/common/cluster"
+	"github.com/hyperledger/fabric/common/util"
+	"github.com/hyperledger/fabric/orderer/common/types"
 	"github.com/hyperledger/fabric/orderer/consensus"
 	"github.com/hyperledger/fabric/protoutil"
-	"github.com/pkg/errors"
-	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/BDLS-bft/bdls/crypto/btcec"
-	agent "github.com/hyperledger/fabric/orderer/consensus/bdls/agent-tcp"
+	bdlsproto "github.com/hyperledger/fabric/orderer/consensus/bdls/protos"
 )
 
-// ConfigValidator interface
-type ConfigValidator interface {
-	ValidateConfig(env *common.Envelope) error
-}
+// ---------------------------------------------------------------------------
+// chain.go implements orderer/consensus.Chain on top of a bdlslib.Consensus.
+//
+// Lifecycle:
+//
+//   HandleChain (Phase C7)
+//      └─ NewChain ──► constructor sets up the state machine, wires the
+//                      peer adapters, and pulls ledger-head state forward
+//                      into blockCreator. Returns a ready-but-not-started
+//                      Chain.
+//
+//   multichannel.Registrar
+//      └─ chain.Start() ──► spawns run() in a background goroutine and
+//                           returns immediately.
+//
+//   run()
+//      ├─ submitC    : a client envelope from Order() or a forwarded
+//      │               SubmitRequest — feed into the block cutter, cut a
+//      │               batch when full, propose the marshalled block to
+//      │               BDLS as a new State.
+//      ├─ configC    : a channel-config envelope from Configure() — cut
+//      │               immediately, propose as a config block. Participant
+//      │               set updates happen *after* the config block commits,
+//      │               via a chain rebuild in Phase C7 (HandleChain is
+//      │               called again by the Registrar post-commit).
+//      ├─ tickC      : periodic Update(now) to drive BDLS timeouts.
+//      ├─ decideC    : latency/4 poll of CurrentState / CurrentProof. On a
+//      │               new height, unmarshal the state bytes back into a
+//      │               Block, attach the CurrentProof bytes to
+//      │               BlockMetadata[ORDERER] as our bdls_decide_proof,
+//      │               and WriteBlockSync.
+//      └─ haltC      : close everything, release the run goroutine.
+//
+// We poll for decide rather than use a callback because Phase A did not
+// add a Config.OnDecide hook — the library keeps its polling contract
+// unchanged. We still wake the run loop after inbound consensus messages and
+// Update ticks so decided blocks do not wait for the next fallback poll.
+// ---------------------------------------------------------------------------
 
-type BlockPuller interface {
-	PullBlock(seq uint64) *common.Block
-	HeightsByEndpoints() (map[string]uint64, error)
-	Close()
-}
-
-// secp256k1 elliptic curve
-var S256Curve elliptic.Curve = btcec.S256()
+// defaultTickInterval is used by Start when the channel's Options.LatencyMs
+// is not set. 20ms matches IPCPeer.Update and gives BDLS's internal
+// Section-8.2 timeouts enough granularity to fire on time.
+const defaultTickInterval = 20 * time.Millisecond
 
 const (
-	baseLatency               = 500 * time.Millisecond
-	maxBaseLatency            = 10 * time.Second
-	proposalCollectionTimeout = 3 * time.Second
-	updatePeriod              = 20 * time.Millisecond
-	resendPeriod              = 10 * time.Second
+	blockSignatureMessageMagic  = "BDLS_BLOCK_SIGNATURE_V1\x00"
+	blockProposalMessageMagic   = "BDLS_BLOCK_PROPOSAL_V1\x00"
+	compactBlockStateMagic      = "BDLS_BLOCK_STATE_V1\x00"
+	compactBlockStateSize       = len(compactBlockStateMagic) + 8 + sha256.Size
+	defaultSubmitForwardTimeout = 30 * time.Second
 )
 
-type signerSerializer interface {
-	// Sign a message and return the signature over the digest, or error on failure
-	Sign(message []byte) ([]byte, error)
-
-	// Serialize converts an identity to bytes
-	Serialize() ([]byte, error)
+// submitReq groups an envelope with its config sequence. Chain.Order uses
+// configSeq to re-validate messages after a config update overtakes the
+// message in-flight — same semantics etcdraft and smartbft use.
+type submitReq struct {
+	env       *cb.Envelope
+	configSeq uint64
 }
 
-type submit struct {
-	req *orderer.SubmitRequest
-	//leader chan uint64
+type pendingBlockProposal struct {
+	number uint64
+	data   []byte
 }
 
-type apply struct {
-	//height uint64
-	//round  uint64
-	state bdls.State
+type submitterTarget struct {
+	id   uint64
+	peer *peerAdapter
 }
 
-// Chain represents a BDLS chain.
+// Chain is the BDLS implementation of orderer/consensus.Chain. One Chain
+// instance lives per channel per orderer.
 type Chain struct {
-	bdlsId  uint64
-	Channel string
+	logger    *flogging.FabricLogger
+	channelID string
 
-	ActiveNodes atomic.Value
+	support consensus.ConsenterSupport
+	metrics *Metrics
 
-	//agent *agent
+	// consensusMu guards concurrent use of the bdls.Consensus state
+	// machine. BDLS's own API is not internally synchronised — the
+	// embedder owns serialisation. We take this on every ReceiveMessage,
+	// Propose, and Update call.
+	consensusMu sync.Mutex
+	bdls        *bdlslib.Consensus
 
-	//BDLS
-	consensus           *bdls.Consensus
-	config              *bdls.Config
-	consensusMessages   [][]byte      // all consensus message awaiting to be processed
-	sync.Mutex                        // fields lock
-	chConsensusMessages chan struct{} // notification of new consensus message
+	// peers are the N−1 adapters talking to remote consenters via the
+	// existing cluster.RPC. Kept so Chain can observe sendErrs counters
+	// for catch-up escalation heuristics.
+	peers []*peerAdapter
 
-	submitC chan *submit
-	applyC  chan apply
-	haltC   chan struct{} // Signals to goroutines that the chain is halting
-	doneC   chan struct{} // Closes when the chain halts
-	startC  chan struct{} // Closes when the node is started
-	readyC  chan Ready
+	trace *bdlsTrace
 
-	errorCLock   sync.RWMutex
-	errorC       chan struct{} // returned by Errored()
-	haltCallback func()
+	// blockCreator tracks the previous-block hash + number so run() can
+	// assemble new blocks without re-reading the ledger every batch.
+	blockCreator *blockCreator
 
-	Logger   *flogging.FabricLogger
-	support  consensus.ConsenterSupport
-	verifier *Verifier
-	opts     Options
+	// tickInterval drives the Update(now) ticker. Pulled from
+	// ConfigMetadata.Options.LatencyMs at constructor time, or
+	// defaultTickInterval if unset.
+	tickInterval time.Duration
 
-	lastBlock *common.Block
-	//TBD
-	RuntimeConfig *atomic.Value
+	// decidePollInterval is the cadence at which run() polls
+	// CurrentState / CurrentProof to detect newly finalised heights.
+	// Set to tickInterval by default.
+	decidePollInterval time.Duration
 
-	//Config           types.Configuration
-	BlockPuller      BlockPuller
-	Comm             cluster.Communicator
-	SignerSerializer signerSerializer
-	PolicyManager    policies.Manager
+	// Queues for run()'s select loop. Buffered so that a brief run()
+	// stall does not block incoming cluster traffic.
+	submitC chan *submitReq
+	configC chan *submitReq
+	decideC chan struct{}
+	haltC   chan struct{}
+	doneC   chan struct{}
+	errC    chan error
 
-	WALDir string
+	// lastCommittedHeight is the BDLS height of the most recent block we
+	// have written to the ledger. Used by the decide poller to detect
+	// height advance.
+	lastCommittedHeight uint64
 
-	clusterService *cluster.ClusterService
+	// selfConsenterID is the channel config's canonical Consenter.Id for
+	// this orderer. V3_0 BFT block validation resolves signer identity
+	// through this identifier rather than a SignatureHeader creator.
+	selfConsenterID uint32
 
-	assembler *Assembler
-	Metrics   *Metrics
-	bccsp     bccsp.BCCSP
+	// Normal transaction ingress is routed to one deterministic submitter
+	// so only one orderer cuts and proposes a batch for each Fabric block
+	// height. BDLS still replicates the resulting block through consensus.
+	submitterConsenterID uint64
+	submitterPeer        *peerAdapter
+	submitterCandidates  []submitterTarget
+	submitForwardTimeout time.Duration
 
-	bdlsChainLock sync.RWMutex
+	// lastConfigBlockNum mirrors the block writer's LastConfig index so
+	// BDLS can pre-populate SIGNATURES metadata before WriteBlockSync.
+	lastConfigBlockNum uint64
 
-	unreachableLock sync.RWMutex
-	unreachable     map[uint64]struct{}
+	// compactState makes BDLS agree on a compact block reference while the
+	// full block bytes travel once over the cluster side channel. This avoids
+	// multiplying the whole block into lock/select/decide proofs.
+	compactState bool
 
-	statusReportMutex sync.Mutex
-	consensusRelation types2.ConsensusRelation
-	status            types2.Status
+	pendingBlockMu     sync.Mutex
+	pendingBlockByHash map[[sha256.Size]byte]pendingBlockProposal
 
-	configInflight bool // this is true when there is config block or ConfChange in flight
-	blockInflight  int  // number of in flight blocks
-	transportLayer *agent.TCPAgent
+	// BDLS exposes the latest decided state, while Fabric's block writer
+	// requires strict block-number order. Keep at most one locally created
+	// block in flight and queue later batches until that block commits. If a
+	// different proposal wins the height, the local batch is retried at the
+	// next Fabric block height.
+	inflightBlock       bool
+	inflightBlockNumber uint64
+	inflightBatch       []*cb.Envelope
+	inflightState       []byte
+	inflightProposalAt  time.Time
+	pendingBatches      [][]*cb.Envelope
 
-	latency      time.Duration
-	die          chan struct{}
-	dieOnce      sync.Once
-	msgCount     int64
-	bytesCount   int64
-	minLatency   time.Duration
-	maxLatency   time.Duration
-	totalLatency time.Duration
+	// BFT V3_0 channels validate block metadata with an N-out-of-consenter
+	// policy. Each orderer signs the decided block locally, exchanges that
+	// Fabric signature over the cluster pipe, and commits once quorum is
+	// available for the exact block header and orderer metadata bytes.
+	blockSignatureMu      sync.Mutex
+	pendingBlockSignature map[string]map[uint32]*cb.MetadataSignature
+	blockSignatureC       chan struct{}
+	signatureQuorum       int
+	blockSignatureTimeout time.Duration
 
-	clock clock.Clock // Tests can inject a fake clock
+	// startOnce / haltOnce protect Start / Halt against being called
+	// more than once by a buggy Registrar or a test harness.
+	startOnce sync.Once
+	haltOnce  sync.Once
 }
 
-type Options struct {
-	//BlockMetadata *etcdraft.BlockMetadata
-	Clock clock.Clock
-	// BlockMetadata and Consenters should only be modified while under lock
-	// of bdlsChainLock
-	//Consenters    map[uint64]*etcdraft.Consenter
-	Consenters []*common.Consenter
-
-	portAddress string
-
-	MaxInflightBlocks int
-}
-
-// Order accepts a message which has been processed at a given configSeq.
-func (c *Chain) Order(env *common.Envelope, configSeq uint64) error {
-	c.Metrics.NormalProposalsReceived.Add(1)
-	seq := c.support.Sequence()
-	if configSeq < seq {
-		c.Logger.Warnf("Normal message was validated against %d, although current config seq has advanced (%d)", configSeq, seq)
-		// No need to ProcessNormalMsg. this process must be in Ordered func
-		/*if _, err := c.support.ProcessNormalMsg(env); err != nil {
-			return errors.Errorf("bad normal message: %s", err)
-		}*/
-	}
-	return c.submit(env, configSeq)
-}
-
-// Configure accepts a message which reconfigures the channel
-func (c *Chain) Configure(env *common.Envelope, configSeq uint64) error {
-	c.Metrics.ConfigProposalsReceived.Add(1)
-	seq := c.support.Sequence()
-	if configSeq < seq {
-		c.Logger.Warnf("Normal message was validated against %d, although current config seq has advanced (%d)", configSeq, seq)
-		if configEnv, _, err := c.support.ProcessConfigMsg(env); err != nil {
-			return errors.Errorf("bad normal message: %s", err)
-		} else {
-			return c.submit(configEnv, configSeq)
-		}
-	}
-	return c.submit(env, configSeq)
-}
-
-func (c *Chain) submit(env *common.Envelope, configSeq uint64) error {
-
-	/*if err := c.isRunning(); err != nil {
-		c.Metrics.ProposalFailures.Add(1)
-		return err
-	}*/
-	req := &orderer.SubmitRequest{LastValidationSeq: configSeq, Payload: env, Channel: c.Channel}
-
-	select {
-	case c.submitC <- &submit{req}:
-		return nil
-	case <-c.doneC:
-		c.Metrics.ProposalFailures.Add(1)
-		return errors.Errorf("chain is stopped")
-	}
-
-}
-
-// WaitReady blocks waiting for consenter to be ready for accepting new messages.
-func (c *Chain) WaitReady() error {
-	if err := c.isRunning(); err != nil {
-		return err
-	}
-
-	select {
-	case c.submitC <- nil:
-	case <-c.doneC:
-		return errors.Errorf("chain is stopped")
-	}
-	return nil
-}
-
-// Errored returns a channel which will close when an error has occurred.
-func (c *Chain) Errored() <-chan struct{} {
-	//TODO
-	return nil
-}
-
-// NewChain creates new chain
+// NewChain constructs a BDLS chain for the given channel. The caller —
+// usually Consenter.HandleChain in Phase C7 — is responsible for:
+//
+//  1. Parsing the channel's ConsensusType.Metadata into a
+//     *bdlsproto.ConfigMetadata (via parseConfigMetadata in util.go).
+//  2. Calling buildBDLSConfig to build the bdlslib.Config skeleton.
+//  3. Filling in Config.SignDigest + PublicKey from the orderer's BCCSP
+//     signer so the private key never leaves the process.
+//  4. Calling bdlslib.NewConsensus(config) to construct the state
+//     machine.
+//  5. Passing the resulting Consensus, the parsed metadata, and the
+//     peer adapters into NewChain.
+//
+// NewChain then wires the pieces together, seeds the block creator from
+// the ledger head, and returns a ready-but-not-started Chain.
 func NewChain(
-	//cv ConfigValidator,
-	selfID uint64,
-	//config types.Configuration,
-	walDir string,
-	blockPuller BlockPuller,
-	comm cluster.Communicator,
-	signerSerializer signerSerializer,
-	policyManager policies.Manager,
 	support consensus.ConsenterSupport,
+	bdlsConsensus *bdlslib.Consensus,
+	md *bdlsproto.ConfigMetadata,
+	peers []*peerAdapter,
 	metrics *Metrics,
-	bccsp bccsp.BCCSP,
-	opts Options,
-
+	selfConsenterID uint32,
+	trace *bdlsTrace,
 ) (*Chain, error) {
-	/*requestInspector := &RequestInspector{
-		ValidateIdentityStructure: func(_ *msp.SerializedIdentity) error {
-			return nil
-		},
-	}*/
-
-	logger := flogging.MustGetLogger("orderer.consensus.bdls.chain").With(zap.String("channel", support.ChannelID()))
-	//oldb := support.Block(support.Height() - 1)
-	b := LastBlockFromLedgerOrPanic(support, logger)
-
-	if b == nil {
-		return nil, errors.Errorf("failed to get last block")
+	if support == nil {
+		return nil, fmt.Errorf("bdls chain: ConsenterSupport is nil")
+	}
+	if bdlsConsensus == nil {
+		return nil, fmt.Errorf("bdls chain: Consensus is nil")
+	}
+	if md == nil {
+		return nil, fmt.Errorf("bdls chain: ConfigMetadata is nil")
 	}
 
-	c := &Chain{
-		SignerSerializer: signerSerializer,
-		Channel:          support.ChannelID(),
-		lastBlock:        b,
-		WALDir:           walDir,
-		Comm:             comm,
-		support:          support,
-		PolicyManager:    policyManager,
-		BlockPuller:      blockPuller,
-		Logger:           logger,
-		opts:             opts,
-		bdlsId:           selfID,
-		applyC:           make(chan apply),
-		submitC:          make(chan *submit),
-		haltC:            make(chan struct{}),
-		doneC:            make(chan struct{}),
-		startC:           make(chan struct{}),
-		errorC:           make(chan struct{}),
-		readyC:           make(chan Ready),
-		//RuntimeConfig:     &atomic.Value{},
-		//Config:            config,
-		clock:             opts.Clock,
-		consensusRelation: types2.ConsensusRelationConsenter,
-		status:            types2.StatusActive,
-
-		Metrics: &Metrics{
-			ClusterSize:             metrics.ClusterSize.With("channel", support.ChannelID()),
-			CommittedBlockNumber:    metrics.CommittedBlockNumber.With("channel", support.ChannelID()),
-			ActiveNodes:             metrics.ActiveNodes.With("channel", support.ChannelID()),
-			IsLeader:                metrics.IsLeader.With("channel", support.ChannelID()),
-			LeaderID:                metrics.LeaderID.With("channel", support.ChannelID()),
-			NormalProposalsReceived: metrics.NormalProposalsReceived.With("channel", support.ChannelID()),
-			ConfigProposalsReceived: metrics.ConfigProposalsReceived.With("channel", support.ChannelID()),
-		},
-		bccsp: bccsp,
-
-		chConsensusMessages: make(chan struct{}, 1),
+	logger := flogging.MustGetLogger("orderer.consensus.bdls").With("channel", support.ChannelID())
+	compactState := bdlsCompactStateEnabled(md.Options)
+	if compactState {
+		logger.Infof("BDLS compact block-state proposals are enabled")
 	}
 
-	// Sets initial values for metrics
-	c.Metrics.ClusterSize.Set(float64(len(c.opts.Consenters)))
-	c.Metrics.IsLeader.Set(float64(0)) // all nodes start out as followers
-	c.Metrics.ActiveNodes.Set(float64(0))
-	c.Metrics.CommittedBlockNumber.Set(float64(c.lastBlock.Header.Number))
-
-	/*
-		lastBlock := LastBlockFromLedgerOrPanic(support, c.Logger)
-		lastConfigBlock := LastConfigBlockFromLedgerOrPanic(support, c.Logger)
-
-	*/
-
-	// Setup communication with list of remotes notes for the new channel
-
-	/*privateKey, err := ecdsa.GenerateKey(S256Curve, rand.Reader)
-	if err != nil {
-		c.Logger.Warnf("error generating privateKey value:", err)
-	}*/
-
-	// setup consensus config at the given height
-	config := &bdls.Config{
-		Epoch:         time.Now(),
-		CurrentHeight: c.lastBlock.Header.Number, //support.Height() - 1, //0,
-		StateCompare:  func(a bdls.State, b bdls.State) int { return bytes.Compare(a, b) },
-		StateValidate: func(bdls.State) bool { return true },
-	}
-	/*config := new(bdls.Config)
-	config.Epoch = time.Now()
-	config.CurrentHeight = 0 // c.support.Height()
-	config.StateCompare = func(a bdls.State, b bdls.State) int { return bytes.Compare(a, b) }
-	config.StateValidate = func(bdls.State) bool { return true }
-	*/
-	Keys := make([]string, 0)
-	Keys = append(Keys,
-		"68082493172628484253808951113461196766221768923883438540199548009461479956986",
-		"44652770827640294682875208048383575561358062645764968117337703282091165609211",
-		"80512969964988849039583604411558290822829809041684390237207179810031917243659",
-		"55978351916851767744151875911101025920456547576858680756045508192261620541580")
-	for k := range Keys { //c.opts.Consenters {
-		//for k := range c.opts.Consenters {
-		i := new(big.Int)
-		_, err := fmt.Sscan(Keys[k], i)
-		if err != nil {
-			c.Logger.Warnf("error scanning value:", err)
+	// Seed blockCreator from ledger head so the next locally cut block
+	// hashes back to the right place — even if this is a fresh restart
+	// and the previous orderer lifecycle wrote blocks we are catching up
+	// to via BlockPuller.
+	bc := &blockCreator{logger: logger}
+	var lastConfigBlockNum uint64
+	if h := support.Height(); h > 0 {
+		last := support.Block(h - 1)
+		if last == nil {
+			return nil, fmt.Errorf("bdls chain: ledger reports height %d but block %d is missing", h, h-1)
 		}
-		priv := new(ecdsa.PrivateKey)
-		priv.PublicKey.Curve = bdls.S256Curve
-		priv.D = i
-		priv.PublicKey.X, priv.PublicKey.Y = bdls.S256Curve.ScalarBaseMult(priv.D.Bytes())
-		// myself
-		if int(c.bdlsId) == k+1 {
-			config.PrivateKey = priv
+		bc.advance(last)
+		if last.Header != nil && last.Header.Number != 0 {
+			index, err := protoutil.GetLastConfigIndexFromBlock(last)
+			if err != nil {
+				return nil, fmt.Errorf("bdls chain: extracting last config index from block %d: %w", last.Header.Number, err)
+			}
+			lastConfigBlockNum = index
 		}
-
-		// set validator sequence
-		config.Participants = append(config.Participants, bdls.DefaultPubKeyToIdentity(&priv.PublicKey))
 	}
 
-	c.config = config
-
-	nodes, err := c.remotePeers()
-	if err != nil {
-		return nil, errors.WithStack(err)
+	tick := defaultTickInterval
+	if md.Options != nil && md.Options.LatencyMs > 0 {
+		tick = time.Duration(md.Options.LatencyMs) * time.Millisecond / 4
+		if tick < time.Millisecond {
+			tick = time.Millisecond
+		}
 	}
-	c.Comm.Configure(c.support.ChannelID(), nodes)
 
-	logger.Infof("BDLS is now serving chain %s", support.ChannelID())
+	clusterSize := len(peers) + 1
+	signatureQuorum := policies.ComputeBFTQuorum(clusterSize, (clusterSize-1)/3)
+	if signatureQuorum < 1 {
+		signatureQuorum = 1
+	}
+	submitterCandidates := deterministicSubmitters(selfConsenterID, peers)
+	submitterConsenterID, submitterPeer := deterministicSubmitter(selfConsenterID, peers)
 
-	return c, nil
+	ch := &Chain{
+		logger:                logger,
+		channelID:             support.ChannelID(),
+		support:               support,
+		metrics:               metrics,
+		bdls:                  bdlsConsensus,
+		peers:                 peers,
+		trace:                 trace,
+		blockCreator:          bc,
+		tickInterval:          tick,
+		decidePollInterval:    tick,
+		submitC:               make(chan *submitReq, 64),
+		configC:               make(chan *submitReq, 4),
+		decideC:               make(chan struct{}, 1),
+		haltC:                 make(chan struct{}),
+		doneC:                 make(chan struct{}),
+		errC:                  make(chan error, 1),
+		selfConsenterID:       selfConsenterID,
+		submitterConsenterID:  submitterConsenterID,
+		submitterPeer:         submitterPeer,
+		submitterCandidates:   submitterCandidates,
+		submitForwardTimeout:  defaultSubmitForwardTimeout,
+		lastConfigBlockNum:    lastConfigBlockNum,
+		compactState:          compactState,
+		pendingBlockByHash:    make(map[[sha256.Size]byte]pendingBlockProposal),
+		pendingBlockSignature: make(map[string]map[uint32]*cb.MetadataSignature),
+		blockSignatureC:       make(chan struct{}, 1),
+		signatureQuorum:       signatureQuorum,
+		blockSignatureTimeout: 30 * time.Second,
+	}
+	if ch.metrics != nil {
+		ch.metrics.ClusterSize.With("channel", ch.channelID).Set(float64(len(peers) + 1))
+		ch.metrics.CommittedBlockNumber.With("channel", ch.channelID).Set(float64(bc.number))
+	}
+	ch.lastCommittedHeight = bc.number
+	return ch, nil
 }
 
-// Halt frees the resources which were allocated for this Chain.
-func (c *Chain) Halt() {
-
-	//TODO
+func deterministicSubmitter(selfConsenterID uint32, peers []*peerAdapter) (uint64, *peerAdapter) {
+	candidates := deterministicSubmitters(selfConsenterID, peers)
+	if len(candidates) == 0 {
+		return uint64(selfConsenterID), nil
+	}
+	return candidates[0].id, candidates[0].peer
 }
 
-// Get the remote peers from the []*cb.Consenter
-func (c *Chain) remotePeers() ([]cluster.RemoteNode, error) {
-	c.bdlsChainLock.RLock()
-	defer c.bdlsChainLock.RUnlock()
-
-	var nodes []cluster.RemoteNode
-	for id, consenter := range c.opts.Consenters {
-		// No need to know yourself
-		if uint64(id) == c.bdlsId {
-			//c.opts.portAddress = fmt.Sprint(consenter.Port)
+func deterministicSubmitters(selfConsenterID uint32, peers []*peerAdapter) []submitterTarget {
+	candidates := []submitterTarget{{id: uint64(selfConsenterID)}}
+	for _, p := range peers {
+		if p == nil {
 			continue
 		}
-		serverCertAsDER, err := pemToDER(consenter.ServerTlsCert, uint64(id), "server", c.Logger)
-		if err != nil {
-			return nil, errors.WithStack(err)
+		candidates = append(candidates, submitterTarget{id: p.destination, peer: p})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].id < candidates[j].id
+	})
+	return candidates
+}
+
+// ------- consensus.Chain interface ----------------------------------------
+
+// Order accepts a client envelope for ordering. It enqueues the envelope on
+// submitC and returns immediately. Actual batching happens in run().
+func (c *Chain) Order(env *cb.Envelope, configSeq uint64) error {
+	c.logger.Debugf("bdls chain %s: Order received client transaction (configSeq %d)", c.channelID, configSeq)
+	return c.routeSubmit(&orderer.SubmitRequest{
+		Channel:           c.channelID,
+		LastValidationSeq: configSeq,
+		Payload:           env,
+	}, false)
+}
+
+// Configure accepts a config-block envelope. Config blocks bypass the
+// block cutter and are proposed to BDLS as a single-envelope batch so
+// the participant set / Options changes take effect at a well-defined
+// height.
+func (c *Chain) Configure(env *cb.Envelope, configSeq uint64) error {
+	c.logger.Debugf("bdls chain %s: Configure received config transaction (configSeq %d)", c.channelID, configSeq)
+	return c.routeSubmit(&orderer.SubmitRequest{
+		Channel:           c.channelID,
+		LastValidationSeq: configSeq,
+		Payload:           env,
+	}, true)
+}
+
+func (c *Chain) routeSubmit(req *orderer.SubmitRequest, config bool) error {
+	if req == nil || req.Payload == nil {
+		return fmt.Errorf("bdls chain %s: cannot route nil submit request", c.channelID)
+	}
+	targets := c.submitterCandidates
+	if len(targets) == 0 {
+		targets = []submitterTarget{{id: c.submitterConsenterID, peer: c.submitterPeer}}
+	}
+	var forwardErrs []string
+	for _, target := range targets {
+		if target.peer == nil || target.id == uint64(c.selfConsenterID) {
+			return c.enqueueSubmit(req.Payload, req.LastValidationSeq, config)
 		}
-		clientCertAsDER, err := pemToDER(consenter.ClientTlsCert, uint64(id), "client", c.Logger)
-		if err != nil {
-			return nil, errors.WithStack(err)
+		if err := c.forwardToSubmitter(target, req); err != nil {
+			forwardErrs = append(forwardErrs, fmt.Sprintf("consenter %d: %v", target.id, err))
+			continue
 		}
-		nodes = append(nodes, cluster.RemoteNode{
-			NodeAddress: cluster.NodeAddress{
-				ID:       uint64(id),
-				Endpoint: fmt.Sprintf("%s:%d", consenter.Host, consenter.Port),
-			},
-			NodeCerts: cluster.NodeCerts{
-				ServerTLSCert: serverCertAsDER,
-				ClientTLSCert: clientCertAsDER,
-			},
-		})
-		//c.Logger.Infof("BDLS Node ID from the remotePeers(): %s ------------", nodes[0].ID)
+		return nil
 	}
-
-	return nodes, nil
+	return fmt.Errorf("bdls chain %s: no submitter accepted transaction (%s)", c.channelID, strings.Join(forwardErrs, "; "))
 }
 
-// HandleMessage handles the message from the sender
-func (c *Chain) HandleMessage(sender uint64, m *bdls.Message /**smartbftprotos.Message*/) {
-	c.Logger.Debugf("Message from %d", sender)
-	date, err := proto.Marshal(m)
-	if err != nil {
-		c.Logger.Info(err)
+func (c *Chain) isSubmitter() bool {
+	targets := c.submitterCandidates
+	if len(targets) == 0 {
+		return c.submitterPeer == nil || c.submitterConsenterID == uint64(c.selfConsenterID)
 	}
-	c.consensus.ReceiveMessage(date, time.Now())
+	return targets[0].peer == nil || targets[0].id == uint64(c.selfConsenterID)
 }
 
-// HandleRequest handles the request from the sender
-func (c *Chain) HandleRequest(sender uint64, req []byte) {
-	c.Logger.Debugf("HandleRequest from %d", sender)
-	if _, err := c.verifier.VerifyRequest(req); err != nil {
-		c.Logger.Warnf("Got bad request from %d: %v", sender, err)
-		return
-	}
-	c.consensus.SubmitRequest(req, time.Now())
-}
-
-func pemToDER(pemBytes []byte, id uint64, certType string, logger *flogging.FabricLogger) ([]byte, error) {
-	bl, _ := pem.Decode(pemBytes)
-	if bl == nil {
-		logger.Errorf("Rejecting PEM block of %s TLS cert for node %d, offending PEM is: %s", certType, id, string(pemBytes))
-		return nil, errors.Errorf("invalid PEM block")
-	}
-	return bl.Bytes, nil
-}
-
-// publicKeyFromCertificate returns the public key of the given ASN1 DER certificate.
-func publicKeyFromCertificate(der []byte) ([]byte, error) {
-	cert, err := x509.ParseCertificate(der)
-	if err != nil {
-		return nil, err
-	}
-	return x509.MarshalPKIXPublicKey(cert.PublicKey)
-}
-
-// Orders the envelope in the `msg` content. SubmitRequest.
-// Returns
-//
-//	-- batches [][]*common.Envelope; the batches cut,
-//	-- pending bool; if there are envelopes pending to be ordered,
-//	-- err error; the error encountered, if any.
-//
-// It takes care of config messages as well as the revalidation of messages if the config sequence has advanced.
-func (c *Chain) ordered(msg *orderer.SubmitRequest) (batches [][]*common.Envelope, pending bool, err error) {
-	seq := c.support.Sequence()
-
-	isconfig, err := c.isConfig(msg.Payload)
-	if err != nil {
-		return nil, false, errors.Errorf("bad message: %s", err)
-	}
-
-	if isconfig {
-		// ConfigMsg
-		if msg.LastValidationSeq < seq {
-			c.Logger.Warnf("Config message was validated against %d, although current config seq has advanced (%d)", msg.LastValidationSeq, seq)
-			msg.Payload, _, err = c.support.ProcessConfigMsg(msg.Payload)
-			if err != nil {
-				//c.Metrics.ProposalFailures.Add(1)
-				return nil, true, errors.Errorf("bad config message: %s", err)
-			}
-		}
-
-		batch := c.support.BlockCutter().Cut()
-		batches = [][]*common.Envelope{}
-		if len(batch) != 0 {
-			batches = append(batches, batch)
-		}
-		batches = append(batches, []*common.Envelope{msg.Payload})
-		return batches, false, nil
-	}
-	// it is a normal message
-	if msg.LastValidationSeq < seq {
-		c.Logger.Warnf("Normal message was validated against %d, although current config seq has advanced (%d)", msg.LastValidationSeq, seq)
-		if _, err := c.support.ProcessNormalMsg(msg.Payload); err != nil {
-			//c.Metrics.ProposalFailures.Add(1)
-			return nil, true, errors.Errorf("bad normal message: %s", err)
-		}
-	}
-	batches, pending = c.support.BlockCutter().Ordered(msg.Payload)
-	return batches, pending, nil
-}
-
-func (c *Chain) propose(ch chan<- *common.Block, bc *blockCreator, batches ...[]*common.Envelope) {
-	for _, batch := range batches {
-		b := bc.createNextBlock(batch)
-		c.Logger.Infof("Created block [%d], there are %d blocks in flight", b.Header.Number, c.blockInflight)
-
+func (c *Chain) enqueueSubmit(env *cb.Envelope, configSeq uint64, config bool) error {
+	req := &submitReq{env: env, configSeq: configSeq}
+	if config {
 		select {
-		case ch <- b:
-		default:
-			c.Logger.Panic("Programming error: limit of in-flight blocks does not properly take effect or block is proposed by follower")
+		case c.configC <- req:
+			return nil
+		case <-c.haltC:
+			return fmt.Errorf("bdls chain %s halted", c.channelID)
 		}
-
-		// if it is config block, then we should wait for the commit of the block
-		if protoutil.IsConfigBlock(b) {
-			c.configInflight = true
-		}
-
-		c.blockInflight++
+	}
+	select {
+	case c.submitC <- req:
+		return nil
+	case <-c.haltC:
+		return fmt.Errorf("bdls chain %s halted", c.channelID)
 	}
 }
 
-func (c *Chain) writeBlock(block *common.Block, index uint64) {
-	c.Logger.Infof("WWWWWWWWWWWWWWWWWWWWWWWWWWW writeBlock WWWWWWWWWWWWWWWWWWWWWWWWWWWW")
-	if block.Header.Number > c.lastBlock.Header.Number+1 {
-		c.Logger.Panicf("Got block [%d], expect block [%d]", block.Header.Number, c.lastBlock.Header.Number+1)
-	} else if block.Header.Number < c.lastBlock.Header.Number+1 {
-		c.Logger.Infof("Got block [%d], expect block [%d], this node was forced to catch up", block.Header.Number, c.lastBlock.Header.Number+1)
-		return
+func (c *Chain) forwardToSubmitter(target submitterTarget, req *orderer.SubmitRequest) error {
+	if target.peer == nil {
+		return fmt.Errorf("bdls chain %s: submitter consenter %d is not reachable from consenter %d",
+			c.channelID, target.id, c.selfConsenterID)
 	}
-
-	if c.blockInflight > 0 {
-		c.blockInflight-- // Reduce on All Orderer
+	timeout := c.submitForwardTimeout
+	if timeout <= 0 {
+		timeout = defaultSubmitForwardTimeout
 	}
-	c.lastBlock = block
-
-	c.Logger.Infof("Writing block [%d] (BDLS index: %d) to ledger", block.Header.Number, index)
-
-	if protoutil.IsConfigBlock(block) {
-		c.configInflight = false
-		//c.writeConfigBlock(block, index)
-		c.support.WriteConfigBlock(block, nil)
-		return
+	if err := target.peer.SendSubmitAndWait(req, timeout, c.haltC); err != nil {
+		return fmt.Errorf("bdls chain %s: forwarding submit to consenter %d: %w",
+			c.channelID, target.id, err)
 	}
-
-	c.support.WriteBlock(block, nil)
-}
-
-func (c *Chain) configureComm() error {
-	// Reset unreachable map when communication is reconfigured
-	c.unreachableLock.Lock()
-	c.unreachable = make(map[uint64]struct{})
-	c.unreachableLock.Unlock()
-
-	nodes, err := c.remotePeers()
-	if err != nil {
-		return err
-	}
-
-	//c.configurator.Configure(c.channelID, nodes)
-	c.Comm.Configure(c.support.ChannelID(), nodes)
 	return nil
 }
 
-func (c *Chain) isConfig(env *common.Envelope) (bool, error) {
-	h, err := protoutil.ChannelHeader(env)
-	if err != nil {
-		c.Logger.Errorf("failed to extract channel header from envelope")
-		return false, err
-	}
+// WaitReady returns nil — BDLS is ready to accept Order() calls the
+// moment NewChain returns. There is no leader-election blackout the way
+// etcdraft has at startup.
+func (c *Chain) WaitReady() error { return nil }
 
-	return h.Type == int32(common.HeaderType_CONFIG), nil
-}
+// Errored returns a channel closed when the chain has hit a fatal error.
+// errC is buffered-1; run() writes once and closes doneC to signal the
+// chain is dead.
+func (c *Chain) Errored() <-chan struct{} { return c.doneC }
 
-func (c *Chain) isRunning() error {
-	select {
-	case <-c.startC:
-	default:
-		return errors.Errorf("chain is not started")
-	}
-
-	select {
-	case <-c.doneC:
-		return errors.Errorf("chain is stopped")
-	default:
-	}
-
-	return nil
-}
-
-// Start should allocate whatever resources are needed for staying up to date with the chain.
-// Typically, this involves creating a thread which reads from the ordering source, passes those
-// messages to a block cutter, and writes the resulting blocks to the ledger.
+// Start launches the run-loop goroutine. Safe to call multiple times;
+// subsequent calls are no-ops.
 func (c *Chain) Start() {
-	c.Logger.Infof("Starting BDLS node")
-
-	close(c.startC)
-	close(c.errorC)
-
-	go c.startConsensus(c.config)
-	go c.run()
-
+	c.startOnce.Do(func() {
+		c.logger.Infof("Starting BDLS chain %s (%d peers, tick=%s)",
+			c.channelID, len(c.peers), c.tickInterval)
+		go c.run()
+	})
 }
 
-// consensus for one round with full procedure
-func (c *Chain) startConsensus(config *bdls.Config) error {
-
-	// var propC chan<- *common.Block
-
-	// create consensus
-	consensus, err := bdls.NewConsensus(config)
-	if err != nil {
-		c.Logger.Error("cannot create BDLS NewConsensus", err)
-	}
-	consensus.SetLatency(200 * time.Millisecond)
-	// load endpoints
-	peers := []string{"localhost:4680", "localhost:4681", "localhost:4682", "localhost:4683"}
-
-	// start listener
-	tcpaddr, err := net.ResolveTCPAddr("tcp", fmt.Sprint(":", 4679+int(c.bdlsId)))
-	if err != nil {
-		c.Logger.Error("cannot create ResolveTCPAddr", err)
-	}
-
-	l, err := net.ListenTCP("tcp", tcpaddr)
-	if err != nil {
-		c.Logger.Error("cannot create ListenTCP", err)
-	}
-	defer l.Close()
-	c.Logger.Info("listening on:", fmt.Sprint(":", 4679+int(c.bdlsId)))
-
-	// initiate tcp agent
-	transportLayer := agent.NewTCPAgent(consensus, config.PrivateKey)
-	if err != nil {
-		c.Logger.Error("cannot create NewTCPAgent", err)
-	}
-
-	// start updater
-	//transportLayer.Update()
-
-	// passive connection from peers
-	go func() {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				return
-			}
-			c.Logger.Info("peer connected from:", conn.RemoteAddr())
-			// peer endpoint created
-			p := agent.NewTCPPeer(conn, transportLayer)
-			transportLayer.AddPeer(p)
-			// prove my identity to this peer
-			p.InitiatePublicKeyAuthentication()
+// Halt signals the run-loop to shut down and blocks until doneC closes.
+// Safe to call multiple times.
+func (c *Chain) Halt() {
+	c.haltOnce.Do(func() {
+		c.logger.Infof("Halting BDLS chain %s", c.channelID)
+		close(c.haltC)
+		for _, p := range c.peers {
+			p.stop()
 		}
-	}()
+	})
+	<-c.doneC
+}
 
-	// active connections to peers
-	for k := range peers {
-		go func(raddr string) {
-			for {
-				conn, err := net.Dial("tcp", raddr)
-				if err == nil {
-					c.Logger.Info("connected to peer:", conn.RemoteAddr())
-					// peer endpoint created
-					p := agent.NewTCPPeer(conn, transportLayer)
-					transportLayer.AddPeer(p)
-					// prove my identity to this peer
-					p.InitiatePublicKeyAuthentication()
-					return
-				}
-				<-time.After(time.Second)
-			}
-		}(peers[k])
+// ------- MessageReceiver (dispatcher.go) ----------------------------------
+
+// Consensus delivers an inbound BDLS SignedProto (carried in the
+// ConsensusRequest.Payload) to the state machine. Called from
+// Dispatcher.OnConsensus.
+func (c *Chain) Consensus(req *orderer.ConsensusRequest, sender uint64) error {
+	if req == nil || len(req.Payload) == 0 {
+		return fmt.Errorf("bdls chain %s: Consensus received empty payload from %d", c.channelID, sender)
 	}
-
-	c.transportLayer = transportLayer
-
-	//go c.runNode()
-
-	updateTick := time.NewTicker(updatePeriod)
-	go c.TestMultiClients()
-	for {
-		<-updateTick.C
-		c.transportLayer.Update()
-		// Check for confirmed new block
-		height /*round*/, _, state := c.transportLayer.GetLatestState()
-		if height > c.lastBlock.Header.Number {
-			go func() {
-				c.applyC <- apply{state}
-			}()
+	if bytes.HasPrefix(req.Payload, []byte(blockSignatureMessageMagic)) {
+		return c.receiveBlockSignature(req.Payload, sender)
+	}
+	if bytes.HasPrefix(req.Payload, []byte(blockProposalMessageMagic)) {
+		return c.receiveBlockProposal(req.Payload, sender)
+	}
+	c.logger.Debugf("bdls chain %s: Consensus received payload from %d, len %d", c.channelID, sender, len(req.Payload))
+	if c.trace != nil {
+		c.trace.recordInbound(req.Payload)
+	}
+	c.consensusMu.Lock()
+	if err := c.bdls.ReceiveMessage(req.Payload, time.Now()); err != nil {
+		if isStaleConsensusMessage(err) {
+			c.logger.Debugf("bdls.ReceiveMessage from %d returned stale message %v (non-fatal, continuing)", sender, err)
+		} else {
+			c.logger.Warnf("bdls.ReceiveMessage from %d returned %v (non-fatal, continuing)", sender, err)
 		}
 	}
-
-	//return nil
+	c.consensusMu.Unlock()
+	c.signalDecideCheck()
+	return nil
 }
 
-func (c *Chain) apply( /*height uint64, round uint64,*/ state bdls.State) {
-
-	newBlock := protoutil.UnmarshalBlockOrPanic(state)
-	c.writeBlock(newBlock, 0)
-	c.Metrics.CommittedBlockNumber.Set(float64(newBlock.Header.Number))
+func isStaleConsensusMessage(err error) bool {
+	return errors.Is(err, bdlslib.ErrRoundChangeHeightMismatch) ||
+		errors.Is(err, bdlslib.ErrRoundChangeRoundLower) ||
+		errors.Is(err, bdlslib.ErrLockHeightMismatch) ||
+		errors.Is(err, bdlslib.ErrLockRoundLower) ||
+		errors.Is(err, bdlslib.ErrSelectHeightMismatch) ||
+		errors.Is(err, bdlslib.ErrSelectRoundLower) ||
+		errors.Is(err, bdlslib.ErrCommitHeightMismatch) ||
+		errors.Is(err, bdlslib.ErrCommitRoundMismatch) ||
+		errors.Is(err, bdlslib.ErrDecideHeightLower) ||
+		errors.Is(err, bdlslib.ErrLockReleaseStatus) ||
+		errors.Is(err, bdlslib.ErrCommitStatus)
 }
 
+// Submit forwards a client envelope that a remote orderer has forwarded to
+// us via SubmitRequest. We treat it exactly like a local Order() call.
+func (c *Chain) Submit(req *orderer.SubmitRequest, sender uint64) error {
+	if req == nil || req.Payload == nil {
+		return fmt.Errorf("bdls chain %s: Submit received nil payload from %d", c.channelID, sender)
+	}
+	c.logger.Debugf("bdls chain %s: Submit received forwarded transaction from %d", c.channelID, sender)
+	return c.routeSubmit(req, c.isConfig(req.Payload))
+}
+
+func (c *Chain) isConfig(env *cb.Envelope) bool {
+	if env == nil {
+		return false
+	}
+	payload, err := protoutil.UnmarshalPayload(env.Payload)
+	if err != nil || payload.Header == nil || payload.Header.ChannelHeader == nil {
+		return false
+	}
+	chdr, err := protoutil.UnmarshalChannelHeader(payload.Header.ChannelHeader)
+	if err != nil {
+		return false
+	}
+	return chdr.Type == int32(cb.HeaderType_CONFIG)
+}
+
+// ------- run-loop ---------------------------------------------------------
+
+// run is the chain's main goroutine. Exits only on Halt() or a fatal error
+// written to errC. The select order biases haltC so a halt that arrives
+// while the chain is under load cannot be starved by a tight submit loop.
 func (c *Chain) run() {
+	defer close(c.doneC)
+
+	tick := time.NewTicker(c.tickInterval)
+	defer tick.Stop()
+
+	decidePoll := time.NewTicker(c.decidePollInterval)
+	defer decidePoll.Stop()
 
 	ticking := false
-	timer := c.clock.NewTimer(time.Second)
-	// we need a stopped timer rather than nil,
-	// because we will be select waiting on timer.C()
+	timer := time.NewTimer(time.Second)
 	if !timer.Stop() {
-		<-timer.C()
+		<-timer.C
 	}
 
-	// if timer is already started, this is a no-op
 	startTimer := func() {
 		if !ticking {
 			ticking = true
@@ -730,213 +566,885 @@ func (c *Chain) run() {
 
 	stopTimer := func() {
 		if !timer.Stop() && ticking {
-			// we only need to drain the channel if the timer expired (not explicitly stopped)
-			<-timer.C()
+			<-timer.C
 		}
 		ticking = false
 	}
-	// the consensus updater ticker
-	updateTick := time.NewTicker(updatePeriod)
-	//defer updateTick.Stop()
-
-	submitC := c.submitC
-	//var propC chan<- *common.Block
-	ch := make(chan *common.Block, c.opts.MaxInflightBlocks)
-	c.blockInflight = 0
-
-	//var bc *blockCreator
-	//No need to create Var for bc, BFT type Orderer intialaize the blockCreator in each node participent
-	bc := &blockCreator{
-		hash:   protoutil.BlockHeaderHash(c.lastBlock.Header),
-		number: c.lastBlock.Header.Number,
-		logger: c.Logger,
-	}
-	c.Logger.Infof("Start accepting requests at block [%d]", c.lastBlock.Header.Number)
-	//submitC = nil
-	// Leader should call Propose in go routine, because this method may be blocked
-	// if node is leaderless (this can happen when leader steps down in a heavily
-	// loaded network). We need to make sure applyC can still be consumed properly.
-	go func(ch chan *common.Block) {
-		for {
-			//	select {
-			/*case*/
-			b := <-ch
-			data := protoutil.MarshalOrPanic(b)
-			c.transportLayer.Propose(data)
-			c.Logger.Debugf("Proposed block [%d] to BDLS consensus", b.Header.Number)
-
-			/*case <-ctx.Done():
-				c.Logger.Debugf("Quit proposing blocks, discarded %d blocks in the queue", len(ch))
-				return
-			}*/
-		}
-	}(ch)
 
 	for {
 		select {
-		/*case <-updateTick.C:
-		c.transportLayer.Update()
-		newHeight, newRound, newState := c.transportLayer.GetLatestState()
-		if newHeight > c.lastBlock.Header.Number {
-			c.Logger.Infof("RRRRRRRRRRR updateTick.C RRRRRRRRRRRRRRRRRR height: %v round: %v  lastBlock: %v", newHeight, newRound, c.lastBlock.Header.Number)
-			//newBlock := protoutil.UnmarshalBlockOrPanic(newState)
-			//	c.writeBlock(newBlock, 0)
-			go func() {
-				c.applyC <- apply{state: newState}
-			}()
-		}*/
-		case s := <-submitC:
-			if s == nil {
-				// polled by `WaitReady`
-				continue
-			}
-			// Direct Ordered for the Payload
-			//batches, pending := c.support.BlockCutter().Ordered(s.req.Payload)
+		case <-c.haltC:
+			return
 
-			batches, pending, err := c.ordered(s.req)
-			if err != nil {
-				c.Logger.Errorf("Failed to order message: %s", err)
-				continue
-			}
+		case req := <-c.submitC:
+			c.handleSubmit(req, startTimer, stopTimer)
 
-			if !pending && len(batches) == 0 {
-				continue
-			}
-
-			if pending {
-				startTimer() // no-op if timer is already started
-			} else {
-				stopTimer()
-			}
-
-			c.propose(ch, bc, batches...)
-
-			/*if len(batches) == 1 {
-				submitC = nil
-			}*/
-
-			if c.configInflight {
-				c.Logger.Info("Received config transaction, pause accepting transaction till it is committed")
-				submitC = nil
-			} else if c.blockInflight >= c.opts.MaxInflightBlocks {
-				c.Logger.Debugf("Number of in-flight blocks (%d) reaches limit (%d), pause accepting transaction",
-					c.blockInflight, c.opts.MaxInflightBlocks)
-				submitC = nil
-			}
-		case app := <-c.applyC:
-			c.Logger.Infof("applyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyc")
-			c.apply(app.state)
-			if c.configInflight {
-				c.Logger.Info("Config block or ConfChange in flight, pause accepting transaction")
-				submitC = nil
-			} else if c.blockInflight < c.opts.MaxInflightBlocks {
-				submitC = c.submitC
-			}
-
-		case <-timer.C():
-			ticking = false
-			c.Logger.Infof("pppppppppppppppppppppppppppppppp <-timer.C( pppppppppppppppppppppppppppppppppppppppp")
-			batch := c.support.BlockCutter().Cut()
-			if len(batch) == 0 {
-				c.Logger.Warningf("Batch timer expired with no pending requests, this might indicate a bug")
-				continue
-			}
-
-			c.Logger.Debugf("Batch timer expired, creating block")
-			c.propose(ch, bc, batch) // we are certain this is normal block, no need to block
-
-		case <-c.doneC:
+		case req := <-c.configC:
 			stopTimer()
-			//cancelProp()
-			updateTick.Stop()
-			select {
-			case <-c.errorC: // avoid closing closed channel
-			default:
-				close(c.errorC)
+			c.handleConfig(req)
+
+		case <-timer.C:
+			ticking = false
+			batch := c.support.BlockCutter().Cut()
+			if len(batch) > 0 {
+				c.logger.Debugf("Batch timer expired, creating block")
+				if err := c.proposeOrQueueBatch(batch); err != nil {
+					c.fatalf("proposeOrQueueBatch (timer) failed: %v", err)
+					return
+				}
 			}
-			c.Logger.Infof("Stop serving requests")
-			//c.periodicChecker.Stop()
+
+		case <-tick.C:
+			c.tickBDLS()
+			c.checkDecide()
+
+		case <-decidePoll.C:
+			c.checkDecide()
+
+		case <-c.decideC:
+			c.checkDecide()
+		}
+	}
+}
+
+// handleSubmit runs the block cutter over an incoming envelope and, for
+// each full batch the cutter emits, proposes the assembled block to BDLS.
+// Messages whose configSeq is stale against the current support.Sequence
+// are dropped — the support has already moved past them.
+func (c *Chain) handleSubmit(req *submitReq, startTimer func(), stopTimer func()) {
+	if c.support.Sequence() > req.configSeq {
+		c.logger.Debugf("Dropping stale envelope (configSeq %d < current %d)", req.configSeq, c.support.Sequence())
+		return
+	}
+
+	batches, pending := c.support.BlockCutter().Ordered(req.env)
+	for _, batch := range batches {
+		if err := c.proposeOrQueueBatch(batch); err != nil {
+			c.fatalf("proposeOrQueueBatch failed: %v", err)
 			return
 		}
 	}
 
-}
-
-// StatusReport returns the ConsensusRelation & Status
-func (c *Chain) StatusReport() (types2.ConsensusRelation, types2.Status) {
-	c.statusReportMutex.Lock()
-	defer c.statusReportMutex.Unlock()
-
-	return c.consensusRelation, c.status
-}
-
-type chainACL struct {
-	policyManager policies.Manager
-	Logger        *flogging.FabricLogger
-}
-
-// Evaluate evaluates signed data
-func (c *chainACL) Evaluate(signatureSet []*protoutil.SignedData) error {
-	policy, ok := c.policyManager.GetPolicy(policies.ChannelWriters)
-	if !ok {
-		return fmt.Errorf("could not find policy %s", policies.ChannelWriters)
+	if len(batches) == 0 && pending {
+		startTimer()
+	} else if !pending {
+		stopTimer()
 	}
+}
 
-	err := policy.EvaluateSignedData(signatureSet)
-	if err != nil {
-		c.Logger.Debugf("SigFilter evaluation failed: %s, policyName: %s", err.Error(), policies.ChannelWriters)
-		return errors.Wrap(errors.WithStack(msgprocessor.ErrPermissionDenied), err.Error())
+// handleConfig cuts immediately (config blocks bypass the batching knobs)
+// and proposes a single-envelope block.
+func (c *Chain) handleConfig(req *submitReq) {
+	if c.support.Sequence() > req.configSeq {
+		c.logger.Debugf("Dropping stale config envelope (configSeq %d < current %d)", req.configSeq, c.support.Sequence())
+		return
+	}
+	// Drain any pending non-config envelopes first — they must commit at
+	// lower heights than the config block so channel-config updates take
+	// effect at a clean boundary.
+	if pending := c.support.BlockCutter().Cut(); len(pending) > 0 {
+		if err := c.proposeOrQueueBatch(pending); err != nil {
+			c.fatalf("proposeOrQueueBatch (pre-config flush) failed: %v", err)
+			return
+		}
+	}
+	if err := c.proposeOrQueueBatch([]*cb.Envelope{req.env}); err != nil {
+		c.fatalf("proposeOrQueueBatch (config) failed: %v", err)
+	}
+}
+
+func (c *Chain) proposeOrQueueBatch(batch []*cb.Envelope) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	if c.inflightBlock {
+		c.pendingBatches = append(c.pendingBatches, batch)
+		c.logger.Debugf("Queued batch with %d envelopes behind in-flight block", len(batch))
+		return nil
+	}
+	if err := c.proposeBatch(batch); err != nil {
+		return err
 	}
 	return nil
 }
 
-type Peer struct {
-	ID      uint64
-	Context []byte
-}
-
-// RaftPeers maps consenters to slice of raft.Peer
-func BdlsPeers(consenters []*common.Consenter) []Peer {
-	var peers []Peer
-	//consenterIDs := len(consenters)
-	//for id := range consenterIDs {
-	for i := 1; i <= len(consenters); i++ {
-		peers = append(peers, Peer{ID: uint64(i)})
+func (c *Chain) proposeNextQueuedBatch() error {
+	if c.inflightBlock || len(c.pendingBatches) == 0 {
+		return nil
 	}
-	return peers
+	batch := c.pendingBatches[0]
+	copy(c.pendingBatches, c.pendingBatches[1:])
+	c.pendingBatches[len(c.pendingBatches)-1] = nil
+	c.pendingBatches = c.pendingBatches[:len(c.pendingBatches)-1]
+	return c.proposeOrQueueBatch(batch)
 }
 
-func (c *Chain) runNode() {
-	bdlsPeers := BdlsPeers(c.opts.Consenters)
-	c.Logger.Debugf("*Starting bdls node: #peers: %v", len(bdlsPeers))
+// proposeBatch assembles a block from the given envelopes and hands its
+// marshalled bytes to BDLS as a proposed state. BDLS chooses which
+// proposal to finalise inside the round; once CurrentState advances we
+// pick up the finalised bytes in checkDecide and write them to the ledger.
+func (c *Chain) proposeBatch(batch []*cb.Envelope) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	block, err := c.blockCreator.createNextBlock(batch)
+	if err != nil {
+		if c.metrics != nil {
+			c.metrics.ProposalFailures.With("channel", c.channelID).Add(1)
+		}
+		return fmt.Errorf("createNextBlock: %w", err)
+	}
+	blockBytes, err := proto.Marshal(block)
+	if err != nil {
+		if c.metrics != nil {
+			c.metrics.ProposalFailures.With("channel", c.channelID).Add(1)
+		}
+		return fmt.Errorf("marshal proposed block: %w", err)
+	}
+	stateBytes := blockBytes
+	if c.compactState {
+		stateBytes = c.rememberAndBroadcastBlockProposal(block.Header.Number, blockBytes)
+	}
+	c.consensusMu.Lock()
+	c.bdls.Propose(stateBytes)
+	c.consensusMu.Unlock()
+	c.rememberInflightProposal(block.Header.Number, batch, stateBytes)
+	c.logger.Debugf("Proposed block %d (%d envelopes, block_bytes=%d state_bytes=%d)", block.Header.Number, len(batch), len(blockBytes), len(stateBytes))
+	return nil
+}
 
-	// BDLS consensus updater ticker
-	updateTick := time.NewTicker(updatePeriod)
-	for {
-		select {
-		// required tick for BDLS
-		case <-updateTick.C:
-			c.transportLayer.Update()
+func (c *Chain) rememberInflightProposal(blockNumber uint64, batch []*cb.Envelope, state []byte) {
+	c.inflightBlock = true
+	c.inflightBlockNumber = blockNumber
+	c.inflightBatch = append([]*cb.Envelope(nil), batch...)
+	c.inflightState = append([]byte(nil), state...)
+	c.inflightProposalAt = time.Now()
+}
 
-		case rd := <-c.Ready():
-			state := rd.state
-			c.applyC <- apply{state}
-			c.readyC = nil
+func (c *Chain) retryBatchForLosingProposal(decidedState []byte, decidedBlock *cb.Block) []*cb.Envelope {
+	if !c.inflightBlock || bytes.Equal(decidedState, c.inflightState) {
+		return nil
+	}
+
+	missing := c.inflightEnvelopesMissingFrom(decidedBlock)
+	if len(missing) == 0 {
+		if c.logger != nil {
+			c.logger.Debugf("Local proposal for block %d lost to block %d, but all %d envelopes were already included",
+				c.inflightBlockNumber, decidedBlock.Header.Number, len(c.inflightBatch))
+		}
+		return nil
+	}
+	if c.logger != nil {
+		c.logger.Debugf("Local proposal for block %d lost to block %d; retrying %d/%d envelopes",
+			c.inflightBlockNumber, decidedBlock.Header.Number, len(missing), len(c.inflightBatch))
+	}
+	return missing
+}
+
+func (c *Chain) inflightEnvelopesMissingFrom(block *cb.Block) []*cb.Envelope {
+	if block == nil || block.Data == nil {
+		return append([]*cb.Envelope(nil), c.inflightBatch...)
+	}
+
+	decided := make(map[[sha256.Size]byte]int, len(block.Data.Data))
+	for _, raw := range block.Data.Data {
+		decided[sha256.Sum256(raw)]++
+	}
+
+	missing := make([]*cb.Envelope, 0, len(c.inflightBatch))
+	for _, env := range c.inflightBatch {
+		raw, err := proto.Marshal(env)
+		if err != nil {
+			if c.logger != nil {
+				c.logger.Warnf("Failed to marshal inflight envelope while checking winning proposal overlap: %v", err)
+			}
+			missing = append(missing, env)
+			continue
+		}
+		hash := sha256.Sum256(raw)
+		if decided[hash] > 0 {
+			decided[hash]--
+			continue
+		}
+		missing = append(missing, env)
+	}
+	return missing
+}
+
+func (c *Chain) clearInflightProposal() {
+	c.inflightBlock = false
+	c.inflightBlockNumber = 0
+	c.inflightBatch = nil
+	c.inflightState = nil
+	c.inflightProposalAt = time.Time{}
+}
+
+func (c *Chain) rememberAndBroadcastBlockProposal(blockNumber uint64, blockBytes []byte) []byte {
+	stateBytes, hash := compactStateForBlock(blockNumber, blockBytes)
+	c.rememberBlockProposal(blockNumber, hash, blockBytes)
+
+	proposal := make([]byte, len(blockProposalMessageMagic)+8+sha256.Size+len(blockBytes))
+	copy(proposal, blockProposalMessageMagic)
+	offset := len(blockProposalMessageMagic)
+	binary.BigEndian.PutUint64(proposal[offset:], blockNumber)
+	offset += 8
+	copy(proposal[offset:], hash[:])
+	offset += sha256.Size
+	copy(proposal[offset:], blockBytes)
+
+	for _, p := range c.peers {
+		_ = p.Send(proposal)
+	}
+	return stateBytes
+}
+
+func compactStateForBlock(blockNumber uint64, blockBytes []byte) ([]byte, [sha256.Size]byte) {
+	hash := sha256.Sum256(blockBytes)
+	stateBytes := make([]byte, compactBlockStateSize)
+	copy(stateBytes, compactBlockStateMagic)
+	offset := len(compactBlockStateMagic)
+	binary.BigEndian.PutUint64(stateBytes[offset:], blockNumber)
+	offset += 8
+	copy(stateBytes[offset:], hash[:])
+	return stateBytes, hash
+}
+
+func parseCompactState(state []byte) (uint64, [sha256.Size]byte, bool) {
+	var hash [sha256.Size]byte
+	if len(state) != compactBlockStateSize || !bytes.HasPrefix(state, []byte(compactBlockStateMagic)) {
+		return 0, hash, false
+	}
+	offset := len(compactBlockStateMagic)
+	blockNumber := binary.BigEndian.Uint64(state[offset:])
+	offset += 8
+	copy(hash[:], state[offset:])
+	return blockNumber, hash, true
+}
+
+func (c *Chain) rememberBlockProposal(blockNumber uint64, hash [sha256.Size]byte, blockBytes []byte) {
+	c.pendingBlockMu.Lock()
+	defer c.pendingBlockMu.Unlock()
+
+	c.pendingBlockByHash[hash] = pendingBlockProposal{
+		number: blockNumber,
+		data:   append([]byte(nil), blockBytes...),
+	}
+}
+
+func (c *Chain) receiveBlockProposal(payload []byte, sender uint64) error {
+	if !bytes.HasPrefix(payload, []byte(blockProposalMessageMagic)) {
+		return fmt.Errorf("bdls chain %s: invalid block proposal marker from %d", c.channelID, sender)
+	}
+	if len(payload) < len(blockProposalMessageMagic)+8+sha256.Size {
+		return fmt.Errorf("bdls chain %s: short block proposal from %d: %d bytes", c.channelID, sender, len(payload))
+	}
+
+	offset := len(blockProposalMessageMagic)
+	blockNumber := binary.BigEndian.Uint64(payload[offset:])
+	offset += 8
+	var advertisedHash [sha256.Size]byte
+	copy(advertisedHash[:], payload[offset:offset+sha256.Size])
+	offset += sha256.Size
+	blockBytes := payload[offset:]
+	actualHash := sha256.Sum256(blockBytes)
+	if actualHash != advertisedHash {
+		return fmt.Errorf("bdls chain %s: block proposal from %d for block %d has mismatched hash", c.channelID, sender, blockNumber)
+	}
+
+	c.rememberBlockProposal(blockNumber, advertisedHash, blockBytes)
+	if err := c.proposeReceivedBlockProposal(blockNumber, blockBytes); err != nil {
+		return err
+	}
+	if c.logger != nil {
+		c.logger.Debugf("Stored compact BDLS block proposal %d from %d (%d bytes)", blockNumber, sender, len(blockBytes))
+	}
+	c.signalDecideCheck()
+	return nil
+}
+
+func (c *Chain) proposeReceivedBlockProposal(blockNumber uint64, blockBytes []byte) error {
+	if !c.compactState || c.bdls == nil || c.support == nil {
+		return nil
+	}
+
+	expectedBlockNumber := c.support.Height()
+	if blockNumber != expectedBlockNumber {
+		if c.logger != nil {
+			c.logger.Debugf("Stored compact BDLS block proposal %d but local ledger expects block %d; not proposing it yet", blockNumber, expectedBlockNumber)
+		}
+		return nil
+	}
+	if expectedBlockNumber == 0 {
+		return nil
+	}
+
+	block := &cb.Block{}
+	if err := proto.Unmarshal(blockBytes, block); err != nil {
+		return fmt.Errorf("unmarshal compact block proposal %d: %w", blockNumber, err)
+	}
+	if block.Header == nil {
+		return fmt.Errorf("compact block proposal %d has nil header", blockNumber)
+	}
+	if block.Header.Number != blockNumber {
+		return fmt.Errorf("compact block proposal advertised block %d but header says %d", blockNumber, block.Header.Number)
+	}
+	dataHash, err := protoutil.BlockDataHash(block.Data)
+	if err != nil {
+		return fmt.Errorf("compact block proposal %d has invalid data: %w", blockNumber, err)
+	}
+	if !bytes.Equal(block.Header.DataHash, dataHash) {
+		return fmt.Errorf("compact block proposal %d has mismatched data hash", blockNumber)
+	}
+
+	previousBlock := c.support.Block(expectedBlockNumber - 1)
+	if previousBlock == nil || previousBlock.Header == nil {
+		return fmt.Errorf("compact block proposal %d cannot validate previous hash: local block %d missing", blockNumber, expectedBlockNumber-1)
+	}
+	expectedPreviousHash := protoutil.BlockHeaderHash(previousBlock.Header)
+	if !bytes.Equal(block.Header.PreviousHash, expectedPreviousHash) {
+		return fmt.Errorf("compact block proposal %d has mismatched previous hash", blockNumber)
+	}
+
+	stateBytes, _ := compactStateForBlock(blockNumber, blockBytes)
+	c.consensusMu.Lock()
+	c.bdls.Propose(stateBytes)
+	c.consensusMu.Unlock()
+	if c.logger != nil {
+		c.logger.Debugf("Proposed received compact BDLS block proposal %d into local candidate set", blockNumber)
+	}
+	return nil
+}
+
+func (c *Chain) resolveDecidedState(state []byte) ([]byte, bool, error) {
+	blockNumber, hash, compact := parseCompactState(state)
+	if !compact {
+		return state, false, nil
+	}
+
+	c.pendingBlockMu.Lock()
+	proposal, ok := c.pendingBlockByHash[hash]
+	c.pendingBlockMu.Unlock()
+	if !ok {
+		return nil, true, fmt.Errorf("compact block proposal %d/%x is not available yet", blockNumber, hash)
+	}
+	if proposal.number != blockNumber {
+		return nil, true, fmt.Errorf("compact block proposal hash %x maps to block %d, decided state says block %d", hash, proposal.number, blockNumber)
+	}
+	return append([]byte(nil), proposal.data...), true, nil
+}
+
+// tickBDLS drives the library's internal timeout machinery. BDLS owns all
+// of its scheduling off this single call; chain.go never has to reach into
+// Δ₀..Δ₃ itself.
+func (c *Chain) tickBDLS() {
+	c.consensusMu.Lock()
+	err := c.bdls.Update(time.Now())
+	c.consensusMu.Unlock()
+	if err != nil {
+		// Non-fatal: PR-A2 converted every former panic on the Update
+		// path into a returned error. Log and keep the chain running —
+		// the next tick will try again.
+		c.logger.Warnf("bdls.Update returned %v (non-fatal, continuing)", err)
+	}
+}
+
+func (c *Chain) signalDecideCheck() {
+	if c.decideC == nil {
+		return
+	}
+	select {
+	case c.decideC <- struct{}{}:
+	default:
+	}
+}
+
+// checkDecide polls the library for a new finalised height. On hit, it
+// unmarshals the finalised state bytes back into a Block, attaches the
+// current proof as BlockMetadata[ORDERER].Value via our BlockMetadata
+// proto, and WriteBlockSync's the result. BFT block validation signs a
+// canonical metadata value, not the local proof bytes, so all consenters
+// aggregate signatures under the same key for the same block.
+func (c *Chain) checkDecide() {
+	commitPipelineStart := time.Now()
+	c.consensusMu.Lock()
+	height, round, state := c.bdls.CurrentState()
+	proof := c.bdls.CurrentProof()
+	c.consensusMu.Unlock()
+
+	if height == 0 || height <= c.lastCommittedHeight {
+		return
+	}
+	if len(state) == 0 {
+		c.logger.Warnf("bdls reported decide at height %d but state is empty", height)
+		return
+	}
+
+	blockBytes, compactState, err := c.resolveDecidedState(state)
+	if err != nil {
+		if compactState {
+			c.logger.Debugf("bdls decided compact state at height %d but block bytes are not ready: %v", height, err)
+			return
+		}
+		c.fatalf("failed to resolve decided state at height %d: %v", height, err)
+		return
+	}
+
+	block := &cb.Block{}
+	if err := proto.Unmarshal(blockBytes, block); err != nil {
+		c.fatalf("failed to unmarshal decided state at height %d: %v", height, err)
+		return
+	}
+	if block.Header == nil {
+		c.fatalf("decided state at height %d has nil block header", height)
+		return
+	}
+	expectedBlockNumber := c.support.Height()
+	if block.Header.Number > expectedBlockNumber {
+		c.logger.Warnf("bdls decided future block %d at height %d while ledger expects block %d; waiting for prior decision", block.Header.Number, height, expectedBlockNumber)
+		return
+	}
+	if block.Header.Number < expectedBlockNumber {
+		c.logger.Warnf("bdls decided stale block %d at height %d while ledger expects block %d; marking height committed", block.Header.Number, height, expectedBlockNumber)
+		c.lastCommittedHeight = height
+		return
+	}
+
+	var consensusFinalityDuration time.Duration
+	if c.inflightBlock && bytes.Equal(state, c.inflightState) && !c.inflightProposalAt.IsZero() {
+		consensusFinalityDuration = time.Since(c.inflightProposalAt)
+	}
+
+	var proofBytes []byte
+	if proof != nil {
+		var err error
+		proofBytes, err = proof.Marshal()
+		if err != nil {
+			c.fatalf("failed to marshal decide proof at height %d: %v", height, err)
+			return
+		}
+	}
+
+	var decidedState []byte
+	if compactState {
+		decidedState = append([]byte(nil), state...)
+	}
+	bm := &bdlsproto.BlockMetadata{
+		BdlsHeight:       height,
+		BdlsRound:        round,
+		BdlsDecideProof:  proofBytes,
+		BdlsDecidedState: decidedState,
+	}
+	encodedMetadata, err := proto.Marshal(bm)
+	if err != nil {
+		c.fatalf("failed to marshal bdls BlockMetadata at height %d: %v", height, err)
+		return
+	}
+	c.setBlockOrdererMetadata(block, encodedMetadata)
+
+	isConfig := protoutil.IsConfigBlock(block)
+	if isConfig {
+		c.lastConfigBlockNum = block.Header.Number
+	}
+	signatureMetadata, err := c.blockSignatureConsenterMetadata(block)
+	if err != nil {
+		c.fatalf("failed to marshal canonical block signature metadata for block %d at height %d: %v", block.Header.Number, height, err)
+		return
+	}
+	localSignature, err := c.createBlockSignatureBFT(block, signatureMetadata)
+	if err != nil {
+		c.fatalf("failed to sign block %d metadata at height %d: %v", block.Header.Number, height, err)
+		return
+	}
+	signatureStart := time.Now()
+	c.recordBlockSignature(block.Header, localSignature.Value, localSignature.Signatures[0])
+	c.broadcastBlockSignature(block, localSignature)
+
+	quorumSignatureMetadata, err := c.collectBlockSignatures(block, localSignature.Value)
+	if err != nil {
+		c.fatalf("failed to collect BFT block signature quorum for block %d at height %d: %v", block.Header.Number, height, err)
+		return
+	}
+	signatureDuration := time.Since(signatureStart)
+	c.setBlockSignatureMetadata(block, quorumSignatureMetadata)
+
+	ledgerWriteStart := time.Now()
+	if isConfig {
+		c.support.WriteConfigBlock(block, encodedMetadata)
+	} else {
+		c.support.WriteBlockSync(block, encodedMetadata)
+	}
+	ledgerWriteDuration := time.Since(ledgerWriteStart)
+	commitPipelineDuration := time.Since(commitPipelineStart)
+
+	c.blockCreator.advance(block)
+	c.lastCommittedHeight = height
+	retryBatch := c.retryBatchForLosingProposal(state, block)
+	c.clearInflightProposal()
+	if len(retryBatch) > 0 {
+		c.pendingBatches = append([][]*cb.Envelope{retryBatch}, c.pendingBatches...)
+	}
+	for _, p := range c.peers {
+		p.resetSendErrs()
+	}
+	c.clearBlockSignatures(block.Header, quorumSignatureMetadata.Value)
+	c.clearBlockProposalsThrough(block.Header.Number)
+	if c.metrics != nil {
+		c.metrics.CommittedBlockNumber.With("channel", c.channelID).Set(float64(block.Header.Number))
+		if consensusFinalityDuration > 0 {
+			c.metrics.ConsensusFinalityDuration.With("channel", c.channelID).Observe(consensusFinalityDuration.Seconds())
+		}
+		c.metrics.CommitPipelineDuration.With("channel", c.channelID).Observe(commitPipelineDuration.Seconds())
+		c.metrics.BlockSignatureDuration.With("channel", c.channelID).Observe(signatureDuration.Seconds())
+		c.metrics.LedgerWriteDuration.With("channel", c.channelID).Observe(ledgerWriteDuration.Seconds())
+	}
+	if c.trace != nil {
+		envelopeCount := 0
+		if block.Data != nil {
+			envelopeCount = len(block.Data.Data)
+		}
+		c.trace.logDecision(
+			block.Header.Number,
+			height,
+			round,
+			envelopeCount,
+			consensusFinalityDuration,
+			commitPipelineDuration,
+			signatureDuration,
+			ledgerWriteDuration,
+		)
+	}
+	c.logger.Debugf("Block %d timing at BDLS height %d round %d: commit_pipeline=%s block_signature=%s ledger_write=%s signatures=%d/%d",
+		block.Header.Number, height, round, commitPipelineDuration, signatureDuration, ledgerWriteDuration,
+		len(quorumSignatureMetadata.Signatures), c.signatureQuorum)
+	c.logger.Debugf("Committed block %d at BDLS height %d round %d", block.Header.Number, height, round)
+	if err := c.proposeNextQueuedBatch(); err != nil {
+		c.fatalf("proposeNextQueuedBatch failed after committing block %d: %v", block.Header.Number, err)
+	}
+}
+
+func (c *Chain) blockSignatureConsenterMetadata(block *cb.Block) ([]byte, error) {
+	if block == nil || block.Header == nil {
+		return nil, fmt.Errorf("block or block header is nil")
+	}
+	return proto.Marshal(&bdlsproto.BlockMetadata{
+		BdlsHeight: block.Header.Number,
+	})
+}
+
+func bdlsCompactStateEnabled(options *bdlsproto.Options) bool {
+	if env := strings.TrimSpace(os.Getenv("FABRIC_BDLS_COMPACT_STATE")); env != "" {
+		switch strings.ToLower(env) {
+		case "1", "true", "yes", "on":
+			return true
+		default:
+			return false
+		}
+	}
+	if options == nil {
+		return false
+	}
+	return options.CompactBlockState
+}
+
+func (c *Chain) clearBlockProposalsThrough(blockNumber uint64) {
+	c.pendingBlockMu.Lock()
+	defer c.pendingBlockMu.Unlock()
+
+	for hash, proposal := range c.pendingBlockByHash {
+		if proposal.number <= blockNumber {
+			delete(c.pendingBlockByHash, hash)
 		}
 	}
 }
 
-func (c *Chain) Ready() <-chan Ready {
-
-	height, _, state := c.transportLayer.GetLatestState()
-	//readyC := make(chan Ready)
-	if height > c.lastBlock.Header.Number {
-		c.readyC <- Ready{state}
-		return c.readyC
+func (c *Chain) createBlockSignatureBFT(block *cb.Block, consenterMetadata []byte) (*cb.Metadata, error) {
+	if block == nil || block.Header == nil {
+		return nil, fmt.Errorf("block or block header is nil")
 	}
+
+	metadata := &cb.Metadata{Value: consenterMetadata}
+	metadataBytes, err := proto.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("marshal consenter metadata wrapper: %w", err)
+	}
+
+	ordererBlockMetadata := &cb.OrdererBlockMetadata{
+		LastConfig:        &cb.LastConfig{Index: c.lastConfigBlockNum},
+		ConsenterMetadata: metadataBytes,
+	}
+	ordererBlockMetadataBytes, err := proto.Marshal(ordererBlockMetadata)
+	if err != nil {
+		return nil, fmt.Errorf("marshal orderer block metadata: %w", err)
+	}
+
+	identifierHeader := &cb.IdentifierHeader{Identifier: c.selfConsenterID}
+	identifierHeaderBytes, err := proto.Marshal(identifierHeader)
+	if err != nil {
+		return nil, fmt.Errorf("marshal identifier header: %w", err)
+	}
+
+	signature, err := c.support.Sign(util.ConcatenateBytes(
+		ordererBlockMetadataBytes,
+		identifierHeaderBytes,
+		protoutil.BlockHeaderBytes(block.Header),
+	))
+	if err != nil {
+		return nil, fmt.Errorf("sign block metadata: %w", err)
+	}
+
+	return &cb.Metadata{
+		Value: ordererBlockMetadataBytes,
+		Signatures: []*cb.MetadataSignature{
+			{
+				IdentifierHeader: identifierHeaderBytes,
+				Signature:        signature,
+			},
+		},
+	}, nil
+}
+
+func (c *Chain) setBlockOrdererMetadata(block *cb.Block, encodedMetadata []byte) {
+	if block.Metadata == nil {
+		block.Metadata = &cb.BlockMetadata{}
+	}
+	for len(block.Metadata.Metadata) <= int(cb.BlockMetadataIndex_ORDERER) {
+		block.Metadata.Metadata = append(block.Metadata.Metadata, nil)
+	}
+	block.Metadata.Metadata[cb.BlockMetadataIndex_ORDERER] = protoutil.MarshalOrPanic(&cb.Metadata{
+		Value: encodedMetadata,
+	})
+}
+
+func (c *Chain) setBlockSignatureMetadata(block *cb.Block, metadata *cb.Metadata) {
+	if block.Metadata == nil {
+		block.Metadata = &cb.BlockMetadata{}
+	}
+	for len(block.Metadata.Metadata) <= int(cb.BlockMetadataIndex_SIGNATURES) {
+		block.Metadata.Metadata = append(block.Metadata.Metadata, nil)
+	}
+	block.Metadata.Metadata[cb.BlockMetadataIndex_SIGNATURES] = protoutil.MarshalOrPanic(metadata)
+}
+
+func (c *Chain) broadcastBlockSignature(block *cb.Block, metadata *cb.Metadata) {
+	payload, err := marshalBlockSignatureMessage(block.Header, metadata)
+	if err != nil {
+		c.logger.Warnf("failed to marshal BFT block signature for block %d: %v", block.Header.Number, err)
+		return
+	}
+	for _, p := range c.peers {
+		if err := p.Send(payload); err != nil {
+			c.logger.Warnf("failed to send BFT block signature for block %d to consenter %d: %v",
+				block.Header.Number, p.destination, err)
+		}
+	}
+}
+
+func (c *Chain) receiveBlockSignature(payload []byte, sender uint64) error {
+	header, ordererMetadataBytes, signature, err := unmarshalBlockSignatureMessage(payload)
+	if err != nil {
+		return fmt.Errorf("bdls chain %s: malformed BFT block signature from %d: %w", c.channelID, sender, err)
+	}
+	signerID, err := signatureConsenterID(signature)
+	if err != nil {
+		return fmt.Errorf("bdls chain %s: BFT block signature from %d has invalid identifier: %w", c.channelID, sender, err)
+	}
+	if uint64(signerID) != sender {
+		return fmt.Errorf("bdls chain %s: BFT block signature sender mismatch: sender=%d identifier=%d", c.channelID, sender, signerID)
+	}
+	c.recordBlockSignature(header, ordererMetadataBytes, signature)
 	return nil
 }
 
-type Ready struct {
-	state bdls.State
+func marshalBlockSignatureMessage(header *cb.BlockHeader, metadata *cb.Metadata) ([]byte, error) {
+	if header == nil {
+		return nil, fmt.Errorf("block header is nil")
+	}
+	if metadata == nil || len(metadata.Signatures) != 1 {
+		return nil, fmt.Errorf("expected exactly one metadata signature")
+	}
+	headerBytes, err := proto.Marshal(header)
+	if err != nil {
+		return nil, fmt.Errorf("marshal block header: %w", err)
+	}
+	signatureBytes, err := proto.Marshal(&cb.Metadata{Signatures: metadata.Signatures})
+	if err != nil {
+		return nil, fmt.Errorf("marshal metadata signature: %w", err)
+	}
+	containerBytes, err := proto.Marshal(&cb.BlockMetadata{
+		Metadata: [][]byte{
+			headerBytes,
+			metadata.Value,
+			signatureBytes,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal signature message container: %w", err)
+	}
+	return append([]byte(blockSignatureMessageMagic), containerBytes...), nil
 }
+
+func unmarshalBlockSignatureMessage(payload []byte) (*cb.BlockHeader, []byte, *cb.MetadataSignature, error) {
+	payload = bytes.TrimPrefix(payload, []byte(blockSignatureMessageMagic))
+	container := &cb.BlockMetadata{}
+	if err := proto.Unmarshal(payload, container); err != nil {
+		return nil, nil, nil, fmt.Errorf("unmarshal signature message container: %w", err)
+	}
+	if len(container.Metadata) != 3 {
+		return nil, nil, nil, fmt.Errorf("expected 3 metadata fields, got %d", len(container.Metadata))
+	}
+	header := &cb.BlockHeader{}
+	if err := proto.Unmarshal(container.Metadata[0], header); err != nil {
+		return nil, nil, nil, fmt.Errorf("unmarshal block header: %w", err)
+	}
+	signatureMetadata := &cb.Metadata{}
+	if err := proto.Unmarshal(container.Metadata[2], signatureMetadata); err != nil {
+		return nil, nil, nil, fmt.Errorf("unmarshal metadata signature: %w", err)
+	}
+	if len(signatureMetadata.Signatures) != 1 {
+		return nil, nil, nil, fmt.Errorf("expected 1 signature, got %d", len(signatureMetadata.Signatures))
+	}
+	return header, container.Metadata[1], signatureMetadata.Signatures[0], nil
+}
+
+func signatureConsenterID(signature *cb.MetadataSignature) (uint32, error) {
+	if signature == nil {
+		return 0, fmt.Errorf("signature is nil")
+	}
+	if len(signature.SignatureHeader) != 0 {
+		return 0, fmt.Errorf("signature header must be empty for BFT block signatures")
+	}
+	if len(signature.IdentifierHeader) == 0 {
+		return 0, fmt.Errorf("identifier header is empty")
+	}
+	identifierHeader := &cb.IdentifierHeader{}
+	if err := proto.Unmarshal(signature.IdentifierHeader, identifierHeader); err != nil {
+		return 0, err
+	}
+	return identifierHeader.Identifier, nil
+}
+
+func (c *Chain) recordBlockSignature(header *cb.BlockHeader, ordererMetadataBytes []byte, signature *cb.MetadataSignature) {
+	signerID, err := signatureConsenterID(signature)
+	if err != nil {
+		c.logger.Warnf("ignoring malformed BFT block signature: %v", err)
+		return
+	}
+	key := blockSignatureKey(header, ordererMetadataBytes)
+
+	c.blockSignatureMu.Lock()
+	defer c.blockSignatureMu.Unlock()
+	if c.pendingBlockSignature == nil {
+		c.pendingBlockSignature = make(map[string]map[uint32]*cb.MetadataSignature)
+	}
+	byID := c.pendingBlockSignature[key]
+	if byID == nil {
+		byID = make(map[uint32]*cb.MetadataSignature)
+		c.pendingBlockSignature[key] = byID
+	}
+	byID[signerID] = proto.Clone(signature).(*cb.MetadataSignature)
+
+	if c.blockSignatureC != nil {
+		select {
+		case c.blockSignatureC <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (c *Chain) collectBlockSignatures(block *cb.Block, ordererMetadataBytes []byte) (*cb.Metadata, error) {
+	quorum := c.signatureQuorum
+	if quorum < 1 {
+		quorum = 1
+	}
+	timeout := c.blockSignatureTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	key := blockSignatureKey(block.Header, ordererMetadataBytes)
+	timeoutC := time.After(timeout)
+	for {
+		if metadata := c.blockSignatureSnapshot(key, ordererMetadataBytes, quorum); metadata != nil {
+			return metadata, nil
+		}
+		select {
+		case <-timeoutC:
+			c.blockSignatureMu.Lock()
+			count := len(c.pendingBlockSignature[key])
+			c.blockSignatureMu.Unlock()
+			return nil, fmt.Errorf("timed out after %s waiting for %d signatures; got %d", timeout, quorum, count)
+		case <-c.blockSignatureC:
+		case <-c.haltC:
+			return nil, fmt.Errorf("chain halted while waiting for BFT block signatures")
+		}
+	}
+}
+
+func (c *Chain) blockSignatureSnapshot(key string, ordererMetadataBytes []byte, quorum int) *cb.Metadata {
+	c.blockSignatureMu.Lock()
+	defer c.blockSignatureMu.Unlock()
+
+	byID := c.pendingBlockSignature[key]
+	if len(byID) < quorum {
+		return nil
+	}
+
+	ids := make([]int, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, int(id))
+	}
+	sort.Ints(ids)
+
+	signatures := make([]*cb.MetadataSignature, 0, quorum)
+	for _, id := range ids {
+		signatures = append(signatures, proto.Clone(byID[uint32(id)]).(*cb.MetadataSignature))
+		if len(signatures) == quorum {
+			break
+		}
+	}
+	return &cb.Metadata{
+		Value:      append([]byte(nil), ordererMetadataBytes...),
+		Signatures: signatures,
+	}
+}
+
+func (c *Chain) clearBlockSignatures(header *cb.BlockHeader, ordererMetadataBytes []byte) {
+	key := blockSignatureKey(header, ordererMetadataBytes)
+	c.blockSignatureMu.Lock()
+	delete(c.pendingBlockSignature, key)
+	c.blockSignatureMu.Unlock()
+}
+
+func blockSignatureKey(header *cb.BlockHeader, ordererMetadataBytes []byte) string {
+	hash := sha256.New()
+	hash.Write(protoutil.BlockHeaderBytes(header))
+	hash.Write(ordererMetadataBytes)
+	return string(hash.Sum(nil))
+}
+
+// fatalf writes a fatal error to errC (if nothing is there already) and
+// closes doneC via the deferred close in run(). Callers should return
+// immediately after invoking fatalf so the select loop exits cleanly.
+func (c *Chain) fatalf(format string, args ...interface{}) {
+	err := fmt.Errorf(format, args...)
+	c.logger.Errorf("BDLS chain %s fatal: %v", c.channelID, err)
+	select {
+	case c.errC <- err:
+	default:
+	}
+	// Signal halt so run() exits on the next iteration. We do NOT call
+	// Halt() here because Halt blocks on doneC, which run() will close
+	// on return — that would deadlock.
+	c.haltOnce.Do(func() { close(c.haltC) })
+}
+
+// StatusReport returns the ConsensusRelation & Status
+func (c *Chain) StatusReport() (types.ConsensusRelation, types.Status) {
+	return types.ConsensusRelationConsenter, types.StatusActive
+}
+
+// Compile-time assertions keep interface drift honest.
+var (
+	_ consensus.Chain          = (*Chain)(nil)
+	_ consensus.StatusReporter = (*Chain)(nil)
+	_ MessageReceiver          = (*Chain)(nil)
+)

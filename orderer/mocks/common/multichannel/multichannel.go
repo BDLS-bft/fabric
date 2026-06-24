@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package multichannel
 
 import (
-	cb "github.com/hyperledger/fabric-protos-go/common"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/orderer/common/blockcutter"
 	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
@@ -108,6 +108,11 @@ func (mcs *ConsenterSupport) WriteBlock(block *cb.Block, encodedMetadataValue []
 		block.Metadata.Metadata[cb.BlockMetadataIndex_ORDERER] = protoutil.MarshalOrPanic(&cb.Metadata{Value: encodedMetadataValue})
 	}
 	mcs.Append(block)
+}
+
+// WriteBlockSync writes data to the Blocks channel
+func (mcs *ConsenterSupport) WriteBlockSync(block *cb.Block, encodedMetadataValue []byte) {
+	mcs.WriteBlock(block, encodedMetadataValue)
 }
 
 // WriteConfigBlock calls WriteBlock

@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package validation
 
 import (
-	"github.com/hyperledger/fabric-protos-go/msp"
+	"github.com/hyperledger/fabric-protos-go-apiv2/msp"
 	validation "github.com/hyperledger/fabric/core/handlers/validation/api"
 )
 
@@ -50,7 +50,6 @@ type Identity interface {
 // IdentityIdentifier is a holder for the identifier of a specific
 // identity, naturally namespaced, by its provider identifier.
 type IdentityIdentifier struct {
-
 	// The identifier of the associated membership service provider
 	Mspid string
 

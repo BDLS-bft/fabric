@@ -7,11 +7,11 @@ SPDX-License-Identifier: Apache-2.0
 package blockledger
 
 import (
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	ab "github.com/hyperledger/fabric-protos-go/orderer"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	ab "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/protoutil"
+	"google.golang.org/protobuf/proto"
 )
 
 var logger = flogging.MustGetLogger("common.ledger.blockledger.util")
@@ -41,10 +41,9 @@ func (nfei *NotFoundErrorIterator) ReadyChan() <-chan struct{} {
 func (nfei *NotFoundErrorIterator) Close() {}
 
 // CreateNextBlock provides a utility way to construct the next block from
-// contents and metadata for a given ledger
+// contents and metadata for a given ledger.
 // XXX This will need to be modified to accept marshaled envelopes
-//
-//	to accommodate non-deterministic marshaling
+// to accommodate non-deterministic marshaling.
 func CreateNextBlock(rl Reader, messages []*cb.Envelope) *cb.Block {
 	var nextBlockNumber uint64
 	var previousBlockHash []byte

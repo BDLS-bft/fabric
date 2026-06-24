@@ -7,15 +7,14 @@ SPDX-License-Identifier: Apache-2.0
 package msgprocessor
 
 import (
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/orderer"
-	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
-	"github.com/hyperledger/fabric/protoutil"
-
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
+	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
 
@@ -105,7 +104,8 @@ func (s *StandardChannel) ProcessNormalMsg(env *cb.Envelope) (configSeq uint64, 
 	if oc.Capabilities().ConsensusTypeMigration() {
 		if oc.ConsensusState() != orderer.ConsensusType_STATE_NORMAL {
 			return 0, errors.WithMessage(
-				ErrMaintenanceMode, "normal transactions are rejected")
+				ErrMaintenanceMode, "normal transactions are rejected",
+			)
 		}
 	}
 

@@ -10,14 +10,15 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/hyperledger/fabric/core/deliverservice"
+	"github.com/hyperledger/fabric/internal/peer/common"
 	"github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSecureOptsConfig(t *testing.T) {
@@ -89,6 +90,7 @@ func TestGlobalConfig(t *testing.T) {
 	viper.Set("peer.keepalive.deliveryClient.timeout", "2s")
 	viper.Set("peer.deliveryclient.blockCensorshipTimeoutKey", "40s")
 	viper.Set("peer.deliveryclient.minimalReconnectInterval", "110ms")
+	viper.Set("peer.deliveryclient.policy", "simple")
 
 	coreConfig := deliverservice.GlobalConfig()
 
@@ -110,6 +112,7 @@ func TestGlobalConfig(t *testing.T) {
 		SecOpts: comm.SecureOptions{
 			UseTLS: true,
 		},
+		Policy: "simple",
 	}
 
 	require.Equal(t, expectedConfig, coreConfig)
@@ -130,6 +133,7 @@ func TestGlobalConfigDefault(t *testing.T) {
 		KeepaliveOptions:            comm.DefaultKeepaliveOptions,
 		BlockCensorshipTimeoutKey:   deliverservice.DefaultBlockCensorshipTimeoutKey,
 		MinimalReconnectInterval:    deliverservice.DefaultMinimalReconnectInterval,
+		Policy:                      deliverservice.DefaultPolicy,
 	}
 
 	require.Equal(t, expectedConfig, coreConfig)
@@ -152,6 +156,37 @@ func TestLoadOverridesMap(t *testing.T) {
                 `
 
 		viper.Reset()
+		viper.SetConfigType("yaml")
+		err := viper.ReadConfig(bytes.NewBuffer([]byte(config)))
+		require.NoError(t, err)
+		res, err := deliverservice.LoadOverridesMap()
+		require.NoError(t, err)
+		require.Len(t, res, 2)
+		ep1, ok := res["addressFrom1"]
+		require.True(t, ok)
+		require.Equal(t, "addressTo1", ep1.Address)
+		ep2, ok := res["addressFrom2"]
+		require.True(t, ok)
+		require.Equal(t, "addressTo2", ep2.Address)
+	})
+
+	t.Run("GreenPath With Env", func(t *testing.T) {
+		t.Setenv("CORE_PEER_DELIVERYCLIENT_ADDRESSOVERRIDES", "[{from: addressFrom1, to: addressTo1, caCertsFile: testdata/cert.pem}"+
+			", {from: addressFrom2, to: addressTo2, caCertsFile: testdata/cert.pem}]")
+		config := `
+                  peer:
+                    deliveryclient:
+                      addressOverrides:
+                `
+
+		viper.Reset()
+
+		viper.SetEnvPrefix(common.CmdRoot)
+		viper.AllowEmptyEnv(true)
+		viper.AutomaticEnv()
+		replacer := strings.NewReplacer(".", "_")
+		viper.SetEnvKeyReplacer(replacer)
+
 		viper.SetConfigType("yaml")
 		err := viper.ReadConfig(bytes.NewBuffer([]byte(config)))
 		require.NoError(t, err)
@@ -265,6 +300,7 @@ func TestGlobalConfigCheckDefaultIsSet(t *testing.T) {
 		KeepaliveOptions:            comm.DefaultKeepaliveOptions,
 		BlockCensorshipTimeoutKey:   deliverservice.DefaultBlockCensorshipTimeoutKey,
 		MinimalReconnectInterval:    deliverservice.DefaultMinimalReconnectInterval,
+		Policy:                      deliverservice.DefaultPolicy,
 	}
 
 	require.Equal(t, coreConfig, expectedConfig)

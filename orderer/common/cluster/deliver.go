@@ -8,16 +8,18 @@ package cluster
 
 import (
 	"context"
+	crand "crypto/rand"
+	"crypto/x509"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/orderer"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/protoutil"
@@ -33,6 +35,7 @@ type BlockPuller struct {
 	MaxTotalBufferBytes int
 	Signer              identity.SignerSerializer
 	TLSCert             []byte
+	MyOwnTLSCert        *x509.Certificate
 	Channel             string
 	FetchTimeout        time.Duration
 	RetryTimeout        time.Duration
@@ -43,7 +46,7 @@ type BlockPuller struct {
 
 	// A 'stopper' goroutine may signal the go-routine servicing PullBlock & HeightsByEndpoints to stop by closing this
 	// channel. Note: all methods of the BlockPuller must be serviced by a single goroutine, it is not thread safe.
-	// It is the responsibility of the 'stopper' not to close the channel more then once.
+	// It is the responsibility of the 'stopper' not to close the channel more than once.
 	StopChannel chan struct{}
 
 	// Internal state
@@ -115,15 +118,21 @@ func (p *BlockPuller) PullBlock(seq uint64) *common.Block {
 }
 
 // HeightsByEndpoints returns the block heights by endpoints of orderers
-func (p *BlockPuller) HeightsByEndpoints() (map[string]uint64, error) {
+func (p *BlockPuller) HeightsByEndpoints() (map[string]uint64, string, error) {
 	endpointsInfo := p.probeEndpoints(0)
 	res := make(map[string]uint64)
-	for endpoint, endpointInfo := range endpointsInfo.byEndpoints() {
-		endpointInfo.conn.Close()
-		res[endpoint] = endpointInfo.lastBlockSeq + 1
+	var myEndpoint string
+
+	for endpoint, ei := range endpointsInfo.byEndpoints() {
+		if p.MyOwnTLSCert != nil && reflect.DeepEqual(p.MyOwnTLSCert, ei.certificate) {
+			myEndpoint = endpoint
+		}
+		ei.conn.Close()
+		res[endpoint] = ei.lastBlockSeq + 1
 	}
-	p.Logger.Info("Returning the heights of OSNs mapped by endpoints", res)
-	return res, endpointsInfo.err
+
+	p.Logger.Infof("Returning the heights of OSNs mapped by endpoints: %v out of which my own endpoint is %s", res, myEndpoint)
+	return res, myEndpoint, endpointsInfo.err
 }
 
 // UpdateEndpoints assigns the new endpoints and disconnects from the current one.
@@ -364,13 +373,13 @@ func (p *BlockPuller) probeEndpoint(endpoint EndpointCriteria, minRequestedSeque
 		return nil, err
 	}
 
-	lastBlockSeq, err := p.fetchLastBlockSeq(minRequestedSequence, endpoint.Endpoint, conn)
+	lastBlockSeq, cert, err := p.fetchLastBlockSeq(minRequestedSequence, endpoint.Endpoint, conn)
 	if err != nil {
 		conn.Close()
 		return nil, err
 	}
 
-	return &endpointInfo{conn: conn, lastBlockSeq: lastBlockSeq, endpoint: endpoint.Endpoint}, nil
+	return &endpointInfo{conn: conn, lastBlockSeq: lastBlockSeq, endpoint: endpoint.Endpoint, certificate: cert}, nil
 }
 
 // randomEndpoint returns a random endpoint of the given endpointInfo
@@ -380,34 +389,36 @@ func randomEndpoint(endpointsToHeight map[string]*endpointInfo) string {
 		candidates = append(candidates, endpoint)
 	}
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return candidates[r.Intn(len(candidates))]
+	var seed [32]byte
+	_, _ = crand.Read(seed[:])
+	r := rand.New(rand.NewChaCha8(seed))
+	return candidates[r.IntN(len(candidates))]
 }
 
 // fetchLastBlockSeq returns the last block sequence of an endpoint with the given gRPC connection.
-func (p *BlockPuller) fetchLastBlockSeq(minRequestedSequence uint64, endpoint string, conn *grpc.ClientConn) (uint64, error) {
+func (p *BlockPuller) fetchLastBlockSeq(minRequestedSequence uint64, endpoint string, conn *grpc.ClientConn) (uint64, *x509.Certificate, error) {
 	env, err := p.seekLastEnvelope()
 	if err != nil {
 		p.Logger.Errorf("Failed creating seek envelope for %s: %v", endpoint, err)
-		return 0, err
+		return 0, nil, err
 	}
 
 	stream, err := p.requestBlocks(endpoint, NewImpatientStream(conn, p.FetchTimeout), env)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer stream.abort()
 
 	resp, err := stream.Recv()
 	if err != nil {
 		p.Logger.Errorf("Failed receiving the latest block from %s: %v", endpoint, err)
-		return 0, err
+		return 0, nil, err
 	}
 
 	block, err := extractBlockFromResponse(resp)
 	if err != nil {
 		p.Logger.Warningf("Received %v from %s: %v", resp, endpoint, err)
-		return 0, err
+		return 0, nil, err
 	}
 	stream.CloseSend()
 
@@ -415,11 +426,11 @@ func (p *BlockPuller) fetchLastBlockSeq(minRequestedSequence uint64, endpoint st
 	if seq < minRequestedSequence {
 		err = errors.Errorf("minimum requested sequence is %d but %s is at sequence %d", minRequestedSequence, endpoint, seq)
 		p.Logger.Infof("Skipping pulling from %s: %v", endpoint, err)
-		return 0, err
+		return 0, nil, err
 	}
 
 	p.Logger.Infof("[channel: %s] %s is at block sequence of %d", p.Channel, endpoint, seq)
-	return block.Header.Number, nil
+	return block.Header.Number, stream.Certificate, nil
 }
 
 // requestBlocks starts requesting blocks from the given endpoint, using the given ImpatientStreamCreator by sending
@@ -520,6 +531,7 @@ type endpointInfo struct {
 	endpoint     string
 	conn         *grpc.ClientConn
 	lastBlockSeq uint64
+	certificate  *x509.Certificate
 }
 
 type endpointInfoBucket struct {
@@ -546,6 +558,7 @@ type ImpatientStreamCreator func() (*ImpatientStream, error)
 
 // ImpatientStream aborts the stream if it waits for too long for a message.
 type ImpatientStream struct {
+	Certificate *x509.Certificate
 	waitTimeout time.Duration
 	orderer.AtomicBroadcast_DeliverClient
 	cancelFunc func()
@@ -597,8 +610,11 @@ func NewImpatientStream(conn *grpc.ClientConn, waitTimeout time.Duration) Impati
 			return nil, err
 		}
 
+		cert := util.ExtractCertificateFromContext(stream.Context())
+
 		once := &sync.Once{}
 		return &ImpatientStream{
+			Certificate: cert,
 			waitTimeout: waitTimeout,
 			// The stream might be canceled while Close() is being called, but also
 			// while a timeout expires, so ensure it's only called once.

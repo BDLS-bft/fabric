@@ -9,8 +9,8 @@ package policies
 import (
 	"math"
 
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	mspa "github.com/hyperledger/fabric-protos-go/msp"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	mspa "github.com/hyperledger/fabric-protos-go-apiv2/msp"
 	"github.com/hyperledger/fabric/common/policydsl"
 	"github.com/hyperledger/fabric/protoutil"
 )
@@ -19,6 +19,9 @@ const (
 	BlockValidationPolicyKey = "BlockValidation"
 )
 
+// EncodeBFTBlockVerificationPolicy creates a block verification policy based on Byzantine Fault Tolerance (BFT).
+// It takes a list of consenters (orderer nodes), constructs a BFT policy using their identities, and updates
+// the orderer's configuration group with this new policy.
 func EncodeBFTBlockVerificationPolicy(consenterProtos []*cb.Consenter, ordererGroup *cb.ConfigGroup) {
 	n := len(consenterProtos)
 	f := (n - 1) / 3

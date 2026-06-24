@@ -39,7 +39,7 @@ policies that the relevant administrators set when they created the channel.
 Configuration transactions are processed by the orderer,
 as it needs to know the current set of policies to execute its basic
 form of access control. In this case, the orderer processes the
-configuration update to make sure that the requestor has the proper
+configuration update to make sure that the requester has the proper
 administrative rights. If so, the orderer validates the update request against
 the existing configuration, generates a new configuration transaction,
 and packages it into a block that is relayed to all peers on the channel. The
@@ -189,18 +189,16 @@ implementation the node will be used in), check out [our documentation on deploy
 
   New as of v1.4.1, Raft is a crash fault tolerant (CFT) ordering service
   based on an implementation of [Raft protocol](https://raft.github.io/raft.pdf)
-  in [`etcd`](https://coreos.com/etcd/). Raft follows a "leader and
+  in [`etcd`](https://etcd.io/). Raft follows a "leader and
   follower" model, where a leader node is elected (per channel) and its decisions
-  are replicated by the followers. Raft ordering services should be easier to set
-  up and manage than Kafka-based ordering services, and their design allows
-  different organizations to contribute nodes to a distributed ordering service.
+  are replicated by the followers.
 
 * **BFT** (New as of v3.0)
 
   A Byzantine Fault Tolerant (BFT) ordering service, as its name implies,
   can withstand not only crash failures, but also a subset of nodes behaving maliciously.
   It is now possible to run a BFT ordering service
-  with the [SmartBFT](https://arxiv.org/abs/2107.06922) [library](https://github.com/SmartBFT-Go/consensus)
+  with the [SmartBFT](https://arxiv.org/abs/2107.06922) [library](https://github.com/hyperledger-labs/SmartBFT)
   as its underlying consensus protocol. Consider using the BFT orderer if true decentralization is required, where
   up to and not including a third of the parties running the orderers may not be trusted due to malicious intent or being compromised.
 
@@ -353,11 +351,11 @@ through the normal Raft protocol.
 
 ## BFT
 
-For information on how to deploy and manage the BFT orderer, be sure to check out the [deployment guide](../bft_configuration.md).
+For information on how to deploy and manage the BFT orderer, be sure to check out the [deployment guide](../bft_configuration.html).
 
 The protocol used by Fabric's BFT orderer implementation is the [SmartBFT](https://arxiv.org/abs/2107.0692) protocol
 heavily inspired by the [BFT-SMART](https://www.di.fc.ul.pt/~bessani/publications/dsn14-bftsmart.pdf) protocol,
-which itself can be thought of as a non-pipelined(*) version of the seminal [PBFT](https://pmg.csail.mit.edu/papers/osdi99.pdf) protocol.
+which itself can be thought of as a non-pipelined(*) version of the seminal [PBFT](http://pmg.csail.mit.edu/papers/osdi99.pdf) protocol.
 As in Raft, the protocol designates a single leader which batches transactions into a block and sends them to the rest of the nodes, termed followers.
 However, unlike Raft, the leader is not dynamically selected but is rotated in a round-robin fashion every time the previous leader is suspected of being faulty
 by the follower nodes.
@@ -367,12 +365,12 @@ the BFT protocol withstands failures of up to (and not including) a third of the
 If a third or more of the nodes crash or are unreachable, no blocks can be agreed upon.
 
 The advantage of the BFT orderer over the Raft orderer is that it can withstand some of the nodes being compromised.
-Indeed, if up to (but not including) a third of the orderer nodes are controlled by a malicous party,
+Indeed, if up to (but not including) a third of the orderer nodes are controlled by a malicious party,
 the system can still accept new transactions, order them, and most importantly ensure the same blocks are committed
 by the rest of the ordering nodes. This is in contrast to Raft, which is not suitable to be deployed in such a harsh adversary model.
 
 Operating the BFT orderer is identical to how the Raft orderer is operated: New nodes can be added and removed from
-the channel dynamically and while the system is running, and it is described in the [reconfiguration guide](../create_channel/add_orderer.md).
+the channel dynamically and while the system is running, and it is described in the [reconfiguration guide](../create_channel/add_orderer.html).
 
 Similarly to Raft, the BFT leader sends periodical heartbeats to each follower, and if the latter does not hear
 from the leader within a period of time, it starts lobbying other followers to change the leader.
@@ -391,7 +389,7 @@ then the transaction may be lost. In BFT, however, even if the leader crashes, t
 in the memory of the follower nodes, and will eventually be either sent to the leader and then included in a block,
 or the leader will be forced to change to a new leader that will eventually include the transaction.
 
-Applications that submit their transactions through the [gateway service](../gateway.md) do not need to change
+Applications that submit their transactions through the [gateway service](../gateway.html) do not need to change
 anything, as the gateway service knows whether it should submit to all ordering nodes or just to one
 based on the configuration of the channel, and acts accordingly.
 

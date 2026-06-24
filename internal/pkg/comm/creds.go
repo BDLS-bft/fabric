@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
 	"google.golang.org/grpc/credentials"
 )
 
@@ -35,7 +35,8 @@ var (
 // grpc/credentials.TransportCredentials
 func NewServerTransportCredentials(
 	serverConfig *TLSConfig,
-	logger *flogging.FabricLogger) credentials.TransportCredentials {
+	logger *flogging.FabricLogger,
+) credentials.TransportCredentials {
 	// NOTE: unlike the default grpc/credentials implementation, we do not
 	// clone the tls.Config which allows us to update it dynamically
 	serverConfig.config.NextProtos = alpnProtoStr
@@ -93,7 +94,7 @@ func (t *TLSConfig) SetClientCAs(certPool *x509.CertPool) {
 	t.config.ClientCAs = certPool
 }
 
-// ClientHandShake is not implemented for `serverCreds`.
+// ClientHandshake is not implemented for `serverCreds`.
 func (sc *serverCreds) ClientHandshake(context.Context, string, net.Conn) (net.Conn, credentials.AuthInfo, error) {
 	return nil, nil, ErrClientHandshakeNotImplemented
 }

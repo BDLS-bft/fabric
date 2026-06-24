@@ -5,7 +5,7 @@ We welcome contributions to Hyperledger in many forms, and there's always plenty
 to do!
 
 First things first, please review the Hyperledger `Code of
-Conduct <https://wiki.hyperledger.org/community/hyperledger-project-code-of-conduct>`__
+Conduct <https://lf-hyperledger.atlassian.net/wiki/spaces/HYP/pages/19595281/Hyperledger+Code+of+Conduct>`__
 before participating. It is important that we keep things civil.
 
 .. note:: If you want to contribute to this documentation, please check out the :doc:`style_guide`.
@@ -86,7 +86,7 @@ Maintainers
 The Fabric project is lead by the project's top level `maintainers <https://github.com/hyperledger/fabric/blob/main/MAINTAINERS.md>`__.
 The maintainers are responsible for reviewing and merging all patches submitted
 for review, and they guide the overall technical direction of the project within
-the guidelines established by the Hyperledger Technical Steering Committee (TSC).
+the guidelines established by the Hyperledger Technical Oversight Committee (TOC).
 
 Becoming a maintainer
 ~~~~~~~~~~~~~~~~~~~~~
@@ -107,7 +107,7 @@ and the individual is added to the maintainers group.
 Maintainers may be removed by explicit resignation, for prolonged
 inactivity (e.g. 3 or more months with no review comments),
 or for some infraction of the `code of conduct
-<https://wiki.hyperledger.org/community/hyperledger-project-code-of-conduct>`__
+<https://lf-hyperledger.atlassian.net/wiki/spaces/HYP/pages/19595281/Hyperledger+Code+of+Conduct>`__
 or by consistently demonstrating poor judgement. A proposed removal
 also requires a majority approval. A maintainer removed for
 inactivity should be restored following a sustained resumption of contributions
@@ -144,7 +144,7 @@ releases and contributions, and to discuss the technical and operational directi
 and sub-projects.
 
 Please see the
-`wiki <https://wiki.hyperledger.org/display/fabric/Contributor+Meetings>`__
+`wiki <https://lf-hyperledger.atlassian.net/wiki/spaces/fabric/pages/22840714/Contributor+Meetings>`__
 for maintainer meeting details.
 
 New feature/enhancement proposals as described above should be presented to a
@@ -166,13 +166,12 @@ If you'd like contribution help or suggestions reach out on the #fabric-code-con
 
 Our development planning and prioritization is done using a
 `GitHub Issues ZenHub board <https://app.zenhub.com/workspaces/fabric-57c43689b6f3d8060d082cf1/board>`__, and we take longer running
-discussions/decisions to the `Fabric contributor meeting <https://wiki.hyperledger.org/display/fabric/Contributor+Meetings>`__.
+discussions/decisions to the `Fabric contributor meeting <https://lf-hyperledger.atlassian.net/wiki/spaces/fabric/pages/22840714/Contributor+Meetings>`__.
 
 The mailing list, Discord, and GitHub each require their own login which you can request upon your first interaction.
 
-The Hyperledger Fabric `wiki <https://wiki.hyperledger.org/display/fabric>`__
-and the legacy issue management system in `Jira <https://jira.hyperledger.org/projects/FAB/issues>`__
-require a `Linux Foundation ID <https://identity.linuxfoundation.org/>`__,
+The Hyperledger Fabric `wiki <https://lf-hyperledger.atlassian.net/wiki/spaces/fabric>`__
+requires a `Linux Foundation ID <https://identity.linuxfoundation.org/>`__,
 but these resources are primarily for read-only reference and you will likely not need an ID.
 
 Contribution guide
@@ -197,7 +196,7 @@ reported, then you might add a comment that you also are interested in seeing
 the defect fixed.
 
 .. note:: If the defect is security-related, please follow the Hyperledger
-          `security bug reporting process <https://wiki.hyperledger.org/display/SEC/Defect+Response>`__.
+          `security bug reporting process <https://lf-hyperledger.atlassian.net/wiki/spaces/SEC/pages/20283657/Defect.Response>`__.
 
 If it has not been previously reported, you may either submit a PR with a
 well documented commit message describing the defect and the fix, or you
@@ -207,7 +206,7 @@ issue. One of the project's maintainers should respond to your issue within 24
 hours. If not, please bump the issue with a comment and request that it be
 reviewed. You can also post to the relevant Hyperledger Fabric channel in
 `Hyperledger Discord <https://discord.com/servers/hyperledger-foundation-905194001349627914>`__.  For example, a doc bug should
-be broadcast to ``#fabric-documentation``, a database bug to ``#fabric-ledger``,
+be broadcast to ``#fabric-documentation``, a peer bug to ``#fabric-peer``,
 and so on...
 
 Submitting your fix
@@ -226,8 +225,10 @@ Review the list of issues and find
 something that interests you. You could also check the
 `"good first issue" <https://github.com/hyperledger/fabric/labels/good%20first%20issue>`__
 list. It is wise to start with something relatively straight forward and
-achievable, and that no one is already assigned. If no one is assigned,
-then assign the issue to yourself. Please be considerate and rescind the
+achievable, and that no one is already assigned.
+Please note, due to GitHub permissions, you might not be able to assign issues to yourself.
+If you find an issue that interests you and is unassigned, please let us know in the chat,
+and a maintainer will assign it to you. Please be considerate and rescind the
 assignment if you cannot finish in a reasonable time, or add a comment
 saying that you are still actively working the issue if you need a
 little more time.

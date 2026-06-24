@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	proto "github.com/hyperledger/fabric-protos-go/gossip"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
-	mspproto "github.com/hyperledger/fabric-protos-go/msp"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	tspb "github.com/hyperledger/fabric-protos-go/transientstore"
-	"github.com/hyperledger/fabric/bccsp/factory"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
+	"github.com/hyperledger/fabric-lib-go/bccsp/factory"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	proto "github.com/hyperledger/fabric-protos-go-apiv2/gossip"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
+	mspproto "github.com/hyperledger/fabric-protos-go-apiv2/msp"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
+	tspb "github.com/hyperledger/fabric-protos-go-apiv2/transientstore"
 	util2 "github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/transientstore"
@@ -73,7 +73,7 @@ func TestRetrievePvtdata(t *testing.T) {
 	}
 	endorser := protoutil.MarshalOrPanic(&mspproto.SerializedIdentity{
 		Mspid:   identity.GetMSPIdentifier(),
-		IdBytes: []byte(fmt.Sprintf("p0%s", identity.GetMSPIdentifier())),
+		IdBytes: fmt.Appendf(nil, "p0%s", identity.GetMSPIdentifier()),
 	})
 
 	ts := testSupport{
@@ -846,7 +846,7 @@ func TestRetrievePvtdataFailure(t *testing.T) {
 	}
 	endorser := protoutil.MarshalOrPanic(&mspproto.SerializedIdentity{
 		Mspid:   identity.GetMSPIdentifier(),
-		IdBytes: []byte(fmt.Sprintf("p0%s", identity.GetMSPIdentifier())),
+		IdBytes: fmt.Appendf(nil, "p0%s", identity.GetMSPIdentifier()),
 	})
 
 	ts := testSupport{
@@ -906,7 +906,7 @@ func TestRetryFetchFromPeer(t *testing.T) {
 	}
 	endorser := protoutil.MarshalOrPanic(&mspproto.SerializedIdentity{
 		Mspid:   identity.GetMSPIdentifier(),
-		IdBytes: []byte(fmt.Sprintf("p0%s", identity.GetMSPIdentifier())),
+		IdBytes: fmt.Appendf(nil, "p0%s", identity.GetMSPIdentifier()),
 	})
 
 	ts := testSupport{
@@ -999,7 +999,7 @@ func TestSkipPullingAllInvalidTransactions(t *testing.T) {
 	}
 	endorser := protoutil.MarshalOrPanic(&mspproto.SerializedIdentity{
 		Mspid:   identity.GetMSPIdentifier(),
-		IdBytes: []byte(fmt.Sprintf("p0%s", identity.GetMSPIdentifier())),
+		IdBytes: fmt.Appendf(nil, "p0%s", identity.GetMSPIdentifier()),
 	})
 
 	ts := testSupport{
@@ -1099,7 +1099,7 @@ func TestRetrievedPvtdataPurgeBelowHeight(t *testing.T) {
 	}
 	endorser := protoutil.MarshalOrPanic(&mspproto.SerializedIdentity{
 		Mspid:   identity.GetMSPIdentifier(),
-		IdBytes: []byte(fmt.Sprintf("p0%s", identity.GetMSPIdentifier())),
+		IdBytes: fmt.Appendf(nil, "p0%s", identity.GetMSPIdentifier()),
 	})
 
 	ts := testSupport{
@@ -1122,7 +1122,7 @@ func TestRetrievedPvtdataPurgeBelowHeight(t *testing.T) {
 	defer storeProvider.Close()
 
 	// set up store with 9 existing private data write sets
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		txID := fmt.Sprintf("tx%d", i+1)
 		store.Persist(txID, uint64(i), &tspb.TxPvtReadWriteSetWithConfigInfo{
 			PvtRwset: &rwset.TxPvtReadWriteSet{
@@ -1249,7 +1249,8 @@ func testRetrievePvtdataSuccess(t *testing.T,
 	rwSetsInCache, rwSetsInTransientStore, rwSetsInPeer []rwSet,
 	expectedDigKeys []privdatacommon.DigKey,
 	pvtdataToRetrieve []*ledger.TxPvtdataInfo,
-	expectedBlockPvtdata *ledger.BlockPvtdata) {
+	expectedBlockPvtdata *ledger.BlockPvtdata,
+) {
 	fmt.Println("\n" + scenario)
 
 	tempdir := t.TempDir()
@@ -1285,7 +1286,8 @@ func testRetrievePvtdataFailure(t *testing.T,
 	rwSetsInCache, rwSetsInTransientStore, rwSetsInPeer []rwSet,
 	expectedDigKeys []privdatacommon.DigKey,
 	pvtdataToRetrieve []*ledger.TxPvtdataInfo,
-	expectedErr string) {
+	expectedErr string,
+) {
 	fmt.Println("\n" + scenario)
 
 	tempdir := t.TempDir()
@@ -1310,7 +1312,8 @@ func setupPrivateDataProvider(t *testing.T,
 	config CoordinatorConfig,
 	storePvtdataOfInvalidTx, skipPullingInvalidTransactions bool, store *transientstore.Store,
 	rwSetsInCache, rwSetsInTransientStore, rwSetsInPeer []rwSet,
-	expectedDigKeys []privdatacommon.DigKey) *PvtdataProvider {
+	expectedDigKeys []privdatacommon.DigKey,
+) *PvtdataProvider {
 	metrics := metrics.NewGossipMetrics(&disabled.Provider{}).PrivdataMetrics
 
 	idDeserializerFactory := IdentityDeserializerFactoryFunc(func(chainID string) msp.IdentityDeserializer {
@@ -1353,7 +1356,8 @@ func testPurged(t *testing.T,
 	scenario string,
 	retrievedPvtdata ledger.RetrievedPvtdata,
 	store *transientstore.Store,
-	txPvtdataInfo []*ledger.TxPvtdataInfo) {
+	txPvtdataInfo []*ledger.TxPvtdataInfo,
+) {
 	retrievedPvtdata.Purge()
 	for _, pvtdata := range retrievedPvtdata.GetBlockPvtdata().PvtData {
 		func() {

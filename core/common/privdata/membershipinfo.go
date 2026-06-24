@@ -7,8 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package privdata
 
 import (
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/core/chaincode/implicitcollection"
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/protoutil"
@@ -36,19 +36,19 @@ func NewMembershipInfoProvider(mspID string, selfSignedData protoutil.SignedData
 
 // AmMemberOf checks whether the current peer is a member of the given collection config.
 // It is used when a chaincode is upgraded to see if the peer's org has become eligible after a collection change.
-func (m *MembershipProvider) AmMemberOf(channelName string, collectionPolicyConfig *peer.CollectionPolicyConfig) (bool, error) {
+func (m *MembershipProvider) AmMemberOf(channelName string, collectionPolicyConfig *peer.CollectionPolicyConfig) bool {
 	deserializer := m.IdentityDeserializerFactory(channelName)
 
 	// Do a simple check to see if the mspid matches any principal identities in the SignaturePolicy - FAB-17059
 	if collectionPolicyConfig.GetSignaturePolicy() == nil {
 		logger.Warningf("collection membership policy is nil")
-		return false, nil
+		return false
 	}
 
 	memberOrgs := getMemberOrgs(collectionPolicyConfig.GetSignaturePolicy().GetIdentities(), deserializer)
 
 	_, ok := memberOrgs[m.mspID]
-	return ok, nil
+	return ok
 }
 
 func (m *MembershipProvider) MyImplicitCollectionName() string {

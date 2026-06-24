@@ -11,16 +11,16 @@ package multichannel
 
 import (
 	"path/filepath"
+	"strconv"
 	"sync"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/metrics"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/configtx"
-	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
-	"github.com/hyperledger/fabric/common/metrics"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/orderer/common/blockcutter"
@@ -31,10 +31,10 @@ import (
 	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
 	"github.com/hyperledger/fabric/orderer/common/types"
 	"github.com/hyperledger/fabric/orderer/consensus"
-
-	//"github.com/hyperledger/fabric/orderer/consensus/etcdraft"
+	"github.com/hyperledger/fabric/orderer/consensus/etcdraft"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -98,7 +98,8 @@ func NewRegistrar(
 	metricsProvider metrics.Provider,
 	bccsp bccsp.BCCSP,
 	clusterDialer *cluster.PredicateDialer,
-	callbacks ...channelconfig.BundleActor) *Registrar {
+	callbacks ...channelconfig.BundleActor,
+) *Registrar {
 	r := &Registrar{
 		config:                      config,
 		chains:                      make(map[string]*ChainSupport),
@@ -444,19 +445,19 @@ func (r *Registrar) newChain(configtx *cb.Envelope) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	/*	channelName, err := channelNameFromConfigTx(configtx)
-		if err != nil {
-			logger.Warnf("Failed extracting channel name: %v", err)
+	channelName, err := channelNameFromConfigTx(configtx)
+	if err != nil {
+		logger.Warnf("Failed extracting channel name: %v", err)
+		return
+	}
+
+	// fixes https://github.com/hyperledger/fabric/issues/2931
+	if existingChain, exists := r.chains[channelName]; exists {
+		if _, isRaftChain := existingChain.Chain.(*etcdraft.Chain); isRaftChain {
+			logger.Infof("Channel %s already created, skipping its creation", channelName)
 			return
 		}
-
-		// fixes https://github.com/hyperledger/fabric/issues/2931
-		if existingChain, exists := r.chains[channelName]; exists {
-			if _, isRaftChain := existingChain.Chain.(*etcdraft.Chain); isRaftChain {
-				logger.Infof("Channel %s already created, skipping its creation", channelName)
-				return
-			}
-		}*/
+	}
 
 	cs := r.createNewChain(configtx)
 	cs.start()
@@ -489,8 +490,10 @@ func (r *Registrar) createNewChain(configtx *cb.Envelope) *ChainSupport {
 // SwitchFollowerToChain creates a consensus.Chain from the tip of the ledger, and removes the follower.
 // It is called when a follower detects a config block that indicates cluster membership and halts, transferring
 // execution to the consensus.Chain.
-func (r *Registrar) SwitchFollowerToChain(channelID string) {
-	r.lock.Lock()
+func (r *Registrar) SwitchFollowerToChain(channelID string) bool {
+	if !r.lock.TryLock() {
+		return false
+	}
 	defer r.lock.Unlock()
 
 	lf, err := r.ledgerFactory.GetOrCreate(channelID)
@@ -505,11 +508,13 @@ func (r *Registrar) SwitchFollowerToChain(channelID string) {
 	delete(r.followers, channelID)
 	logger.Debugf("Removed follower for channel %s", channelID)
 	cs := r.createNewChain(configTx(lf))
-	if err := r.removeJoinBlock(channelID); err != nil {
+	if err = r.removeJoinBlock(channelID); err != nil {
 		logger.Panicf("Failed removing join-block for channel: %s: %v", channelID, err)
 	}
 	cs.start()
 	logger.Infof("Created and started channel %s", cs.ChannelID())
+
+	return true
 }
 
 // SwitchChainToFollower creates a follower.Chain from the tip of the ledger and removes the consensus.Chain.
@@ -616,6 +621,53 @@ func (r *Registrar) ChannelInfo(channelID string) (types.ChannelInfo, error) {
 	return types.ChannelInfo{}, types.ErrChannelNotExist
 }
 
+// FetchBlock instructs the orderer to send a block of channel.
+func (r *Registrar) FetchBlock(channelID string, blockID string) (*cb.Block, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	if status, ok := r.pendingRemoval[channelID]; ok {
+		if status.Status == types.StatusFailed {
+			return nil, types.ErrChannelRemovalFailure
+		}
+		return nil, types.ErrChannelPendingRemoval
+	}
+
+	if _, ok := r.followers[channelID]; ok {
+		return nil, types.ErrChannelNotReady
+	}
+
+	cs, ok := r.chains[channelID]
+	if !ok {
+		return nil, types.ErrChannelNotExist
+	}
+
+	switch blockID {
+	case "oldest":
+		return cs.RetrieveBlockByNumber(0)
+	case "newest":
+		return cs.RetrieveBlockByNumber(cs.Height() - 1)
+	case "config":
+		b, err := cs.RetrieveBlockByNumber(cs.Height() - 1)
+		if err != nil {
+			return nil, err
+		}
+		lc, err := protoutil.GetLastConfigIndexFromBlock(b)
+		if err != nil {
+			return nil, err
+		}
+		return cs.RetrieveBlockByNumber(lc)
+	default:
+	}
+
+	nb, err := strconv.Atoi(blockID)
+	if err != nil {
+		return nil, err
+	}
+
+	return cs.RetrieveBlockByNumber(uint64(nb))
+}
+
 // JoinChannel instructs the orderer to create a channel and join it with the provided config block.
 // The URL field is empty, and is to be completed by the caller.
 func (r *Registrar) JoinChannel(channelID string, configBlock *cb.Block) (info types.ChannelInfo, err error) {
@@ -649,6 +701,9 @@ func (r *Registrar) JoinChannel(channelID string, configBlock *cb.Block) (info t
 		return types.ChannelInfo{}, err
 	}
 
+	if configBlock == nil {
+		return types.ChannelInfo{}, errors.Wrap(err, "failed marshaling joinblock: proto: Marshal called with nil")
+	}
 	blockBytes, err := proto.Marshal(configBlock)
 	if err != nil {
 		return types.ChannelInfo{}, errors.Wrap(err, "failed marshaling joinblock")
@@ -691,6 +746,54 @@ func (r *Registrar) JoinChannel(channelID string, configBlock *cb.Block) (info t
 	return info, err
 }
 
+// UpdateChannel instructs the orderer to update a channel with the provided config envelope.
+// The URL field is empty, and is to be completed by the caller.
+func (r *Registrar) UpdateChannel(channelID string, envelope *cb.Envelope) (info types.ChannelInfo, err error) {
+	r.lock.Lock()
+	if status, ok := r.pendingRemoval[channelID]; ok {
+		if status.Status == types.StatusFailed {
+			return types.ChannelInfo{}, types.ErrChannelRemovalFailure
+		}
+		return types.ChannelInfo{}, types.ErrChannelPendingRemoval
+	}
+
+	if _, ok := r.followers[channelID]; ok {
+		return types.ChannelInfo{}, types.ErrChannelNotReady
+	}
+
+	cs, ok := r.chains[channelID]
+	if !ok {
+		return types.ChannelInfo{}, types.ErrChannelNotExist
+	}
+	r.lock.Unlock()
+
+	config, configSeq, err := cs.ProcessConfigUpdateMsg(envelope)
+	if err != nil {
+		return types.ChannelInfo{}, errors.WithMessagef(err, "failed update config of channel %s", channelID)
+	}
+
+	if err = cs.WaitReady(); err != nil {
+		return types.ChannelInfo{}, errors.WithMessagef(err, "failed update config of channel %s with SERVICE_UNAVAILABLE: rejected by Consenter", channelID)
+	}
+
+	err = cs.Configure(config, configSeq)
+	if err != nil {
+		return types.ChannelInfo{}, errors.WithMessagef(err, "failed update config of channel %s with SERVICE_UNAVAILABLE: rejected by Configure", channelID)
+	}
+
+	rel, status := cs.StatusReport()
+
+	info = types.ChannelInfo{
+		Name:              channelID,
+		ConsensusRelation: rel,
+		Status:            status,
+		Height:            cs.Height(),
+	}
+
+	logger.Infof("Updating channel: %v", info)
+	return info, err
+}
+
 func (r *Registrar) createAsMember(ledgerRes *ledgerResources, configBlock *cb.Block, channelID string) (*ChainSupport, types.ChannelInfo, error) {
 	if ledgerRes.Height() == 0 {
 		if err := ledgerRes.Append(configBlock); err != nil {
@@ -730,7 +833,8 @@ func (r *Registrar) createFollower(
 ) (*follower.Chain, types.ChannelInfo, error) {
 	fLog := flogging.MustGetLogger("orderer.common.follower")
 	blockPullerCreator, err := follower.NewBlockPullerCreator(
-		channelID, fLog, r.signer, r.clusterDialer, r.config.General.Cluster, r.bccsp)
+		channelID, fLog, r.signer, r.clusterDialer, r.config.General.Cluster, r.bccsp,
+	)
 	if err != nil {
 		return nil, types.ChannelInfo{}, errors.WithMessagef(err, "failed to create BlockPullerFactory for channel %s", channelID)
 	}

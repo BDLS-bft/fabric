@@ -15,10 +15,10 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/msp"
-	"github.com/hyperledger/fabric/bccsp/utils"
+	"github.com/hyperledger/fabric-lib-go/bccsp/utils"
+	"github.com/hyperledger/fabric-protos-go-apiv2/msp"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 // SanitizeIdentity sanitizes the signature scheme of the identity
@@ -38,6 +38,7 @@ func SanitizeIdentity(identity []byte) ([]byte, error) {
 	return proto.Marshal(sID)
 }
 
+// SanitizeX509Cert sanitizes an X.509 certificate to ensure that the ECDSA signature uses a "low-S" value.
 func SanitizeX509Cert(initialPEM []byte) ([]byte, error) {
 	der, _ := pem.Decode(initialPEM)
 	if der == nil {

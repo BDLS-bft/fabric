@@ -9,7 +9,7 @@ package privdata
 import (
 	"testing"
 
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/policydsl"
 	"github.com/hyperledger/fabric/core/common/privdata/mock"
 	"github.com/hyperledger/fabric/core/ledger"
@@ -41,7 +41,8 @@ func TestNewSimpleCollectionStore(t *testing.T) {
 	require.Exactly(t, mockQueryExecutorFactory, cs.qeFactory)
 	require.Exactly(t, mockCCInfoProvider, cs.ccInfoProvider)
 	require.Exactly(t, mockIDDeserializerFactory, cs.idDeserializerFactory)
-	require.Equal(t,
+	require.Equal(
+		t,
 		&SimpleCollectionStore{
 			qeFactory:             mockQueryExecutorFactory,
 			ccInfoProvider:        mockCCInfoProvider,

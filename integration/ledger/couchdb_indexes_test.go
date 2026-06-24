@@ -12,12 +12,11 @@ import (
 	"path/filepath"
 	"syscall"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	"github.com/hyperledger/fabric/integration/nwo/fabricconfig"
 	"github.com/hyperledger/fabric/integration/nwo/runner"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -46,7 +45,7 @@ var (
 var _ = Describe("CouchDB indexes", func() {
 	var (
 		testDir                     string
-		client                      *docker.Client
+		client                      dcli.APIClient
 		network                     *nwo.Network
 		orderer                     *nwo.Orderer
 		ordererRunner               *ginkgomon.Runner
@@ -56,15 +55,14 @@ var _ = Describe("CouchDB indexes", func() {
 		couchDB      *runner.CouchDB
 		couchProcess ifrit.Process
 
-		legacyChaincode       nwo.Chaincode
-		newlifecycleChaincode nwo.Chaincode
+		chaincode nwo.Chaincode
 	)
 
 	BeforeEach(func() {
 		var err error
 		testDir, err = os.MkdirTemp("", "ledger")
 		Expect(err).NotTo(HaveOccurred())
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		network = nwo.New(nwo.FullEtcdRaft(), testDir, client, StartPort(), components)
@@ -102,19 +100,10 @@ var _ = Describe("CouchDB indexes", func() {
 
 		By("setting up the channel")
 		orderer = network.Orderer("orderer")
-		channelparticipation.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
+		nwo.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
 		network.VerifyMembership(network.PeersWithChannel("testchannel"), "testchannel")
 
-		legacyChaincode = nwo.Chaincode{
-			Name:        "marbles",
-			Version:     "0.0",
-			Path:        chaincodePathWithIndex,
-			Ctor:        `{"Args":[]}`,
-			Policy:      `OR ('Org1MSP.member','Org2MSP.member')`,
-			PackageFile: filepath.Join(testDir, "marbles_legacy.tar.gz"),
-		}
-
-		newlifecycleChaincode = nwo.Chaincode{
+		chaincode = nwo.Chaincode{
 			Name:            "marbles",
 			Version:         "0.0",
 			Path:            components.Build(chaincodePathWithIndex),
@@ -144,25 +133,15 @@ var _ = Describe("CouchDB indexes", func() {
 		os.RemoveAll(testDir)
 	})
 
-	When("chaincode is installed and instantiated via legacy lifecycle", func() {
-		It("creates indexes", func() {
-			nwo.PackageChaincodeLegacy(network, legacyChaincode, network.Peer("Org1", "peer0"))
-			nwo.InstallChaincodeLegacy(network, legacyChaincode, network.Peer("Org1", "peer0"))
-			nwo.InstantiateChaincodeLegacy(network, "testchannel", orderer, legacyChaincode, network.Peer("Org1", "peer0"), network.Peers...)
-			initMarble(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles", "marble_indexed")
-			verifySizeIndexExists(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles")
-		})
-	})
-
 	When("chaincode is deployed via new lifecycle (using the docker chaincode build) ", func() {
 		BeforeEach(func() {
-			newlifecycleChaincode.Path = chaincodePathWithIndex
-			newlifecycleChaincode.Lang = "golang"
+			chaincode.Path = chaincodePathWithIndex
+			chaincode.Lang = "golang"
 		})
 
 		It("creates indexes", func() {
 			nwo.EnableCapabilities(network, "testchannel", "Application", "V2_0", orderer, network.Peer("Org1", "peer0"), network.Peer("Org2", "peer0"))
-			nwo.DeployChaincode(network, "testchannel", orderer, newlifecycleChaincode, network.Peers...)
+			nwo.DeployChaincode(network, "testchannel", orderer, chaincode, network.Peers...)
 			initMarble(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles", "marble_indexed")
 			verifySizeIndexExists(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles")
 		})
@@ -171,115 +150,25 @@ var _ = Describe("CouchDB indexes", func() {
 	When("chaincode is defined and installed via new lifecycle and then upgraded with an additional index", func() {
 		It("creates indexes", func() {
 			nwo.EnableCapabilities(network, "testchannel", "Application", "V2_0", orderer, network.Peer("Org1", "peer0"), network.Peer("Org2", "peer0"))
-			nwo.DeployChaincode(network, "testchannel", orderer, newlifecycleChaincode, network.Peers...)
+			nwo.DeployChaincode(network, "testchannel", orderer, chaincode, network.Peers...)
 			initMarble(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles", "marble_indexed")
 			verifySizeIndexExists(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles")
 			verifyColorIndexDoesNotExist(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles")
 
 			By("upgrading the chaincode to include an additional index")
-			newlifecycleChaincode.Sequence = "2"
-			newlifecycleChaincode.CodeFiles = filesWithIndices
-			newlifecycleChaincode.PackageFile = filepath.Join(testDir, "marbles-two-indexes.tar.gz")
-			newlifecycleChaincode.Label = "marbles-two-indexes"
+			chaincode.Sequence = "2"
+			chaincode.CodeFiles = filesWithIndices
+			chaincode.PackageFile = filepath.Join(testDir, "marbles-two-indexes.tar.gz")
+			chaincode.Label = "marbles-two-indexes"
 
-			nwo.PackageChaincodeBinary(newlifecycleChaincode)
-			nwo.InstallChaincode(network, newlifecycleChaincode, network.Peers...)
-			nwo.ApproveChaincodeForMyOrg(network, "testchannel", orderer, newlifecycleChaincode, network.Peers...)
-			nwo.CheckCommitReadinessUntilReady(network, "testchannel", newlifecycleChaincode, network.PeerOrgs(), network.Peers...)
-			nwo.CommitChaincode(network, "testchannel", orderer, newlifecycleChaincode, network.Peers[0], network.Peers...)
+			nwo.PackageChaincodeBinary(chaincode)
+			nwo.InstallChaincode(network, chaincode, network.Peers...)
+			nwo.ApproveChaincodeForMyOrg(network, "testchannel", orderer, chaincode, network.Peers...)
+			nwo.CheckCommitReadinessUntilReady(network, "testchannel", chaincode, network.PeerOrgs(), network.Peers...)
+			nwo.CommitChaincode(network, "testchannel", orderer, chaincode, network.Peers[0], network.Peers...)
 
 			verifySizeIndexExists(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles")
 			verifyColorIndexExists(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles")
-		})
-	})
-
-	When("chaincode is installed and instantiated via legacy lifecycle and then defined and installed via new lifecycle", func() {
-		BeforeEach(func() {
-			legacyChaincode.Path = chaincodePathWithNoIndex
-			newlifecycleChaincode.CodeFiles = filesWithIndex
-		})
-
-		It("creates indexes from the new lifecycle package", func() {
-			By("instantiating and installing legacy chaincode")
-			nwo.PackageChaincodeLegacy(network, legacyChaincode, network.Peer("Org1", "peer0"))
-			nwo.InstallChaincodeLegacy(network, legacyChaincode, network.Peer("Org1", "peer0"))
-			nwo.InstantiateChaincodeLegacy(network, "testchannel", orderer, legacyChaincode, network.Peer("Org1", "peer0"), network.Peers...)
-			initMarble(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles", "marble_not_indexed")
-			verifySizeIndexDoesNotExist(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles")
-
-			By("installing and defining chaincode using new lifecycle")
-			nwo.EnableCapabilities(network, "testchannel", "Application", "V2_0", orderer, network.Peer("Org1", "peer0"), network.Peer("Org2", "peer0"))
-			nwo.DeployChaincode(network, "testchannel", orderer, newlifecycleChaincode)
-			initMarble(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles", "marble_indexed")
-			verifySizeIndexExists(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles")
-		})
-	})
-
-	When("chaincode is installed and instantiated via legacy lifecycle with an external builder", func() {
-		BeforeEach(func() {
-			// This covers the legacy lifecycle + external builder scenario
-			legacyChaincode.Path = chaincodePathWithIndexes
-			legacyChaincode.Name = "marbles-external"
-		})
-
-		It("creates indexes from the new lifecycle package", func() {
-			peer := network.Peer("Org1", "peer0")
-
-			By("installing with the external chaincode builder")
-			nwo.PackageChaincodeLegacy(network, legacyChaincode, peer)
-			nwo.InstallChaincodeLegacy(network, legacyChaincode, peer)
-			nwo.InstantiateChaincodeLegacy(network, "testchannel", orderer, legacyChaincode, peer, peer)
-			initMarble(network, "testchannel", orderer, peer, legacyChaincode.Name, "marble_indexed")
-			verifySizeIndexExists(network, "testchannel", orderer, peer, legacyChaincode.Name)
-		})
-	})
-
-	When("chaincode is instantiated via legacy lifecycle, then defined and installed via new lifecycle and, finally installed via legacy lifecycle", func() {
-		BeforeEach(func() {
-			legacyChaincode.Path = chaincodePathWithIndex
-			newlifecycleChaincode.CodeFiles = nil
-		})
-
-		It("does not create indexes upon final installation of legacy chaincode", func() {
-			By("instantiating legacy chaincode")
-			// lscc requires the chaincode to be installed before a instantiate transaction can be simulated
-			// doing so in Org1.peer1 so that chaincode is not installed on "Org1.peer0" i.e., only instantiated
-			// via legacy lifecycle
-			nwo.PackageChaincodeLegacy(network, legacyChaincode, network.Peer("Org1", "peer1"))
-			nwo.InstallChaincodeLegacy(network, legacyChaincode, network.Peer("Org1", "peer1"))
-			nwo.InstantiateChaincodeLegacy(network, "testchannel", orderer, legacyChaincode, network.Peer("Org1", "peer1"), network.Peers...)
-
-			By("installing and defining chaincode using new lifecycle")
-			nwo.EnableCapabilities(network, "testchannel", "Application", "V2_0", orderer, network.Peer("Org1", "peer0"), network.Peer("Org2", "peer0"))
-			nwo.DeployChaincode(network, "testchannel", orderer, newlifecycleChaincode)
-			initMarble(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles", "marble_not_indexed")
-
-			By("installing legacy chaincode on Org1.peer0")
-			nwo.InstallChaincodeLegacy(network, legacyChaincode, network.Peer("Org1", "peer0"))
-
-			By("verifying that the index should not have been created on (Org1, peer0) - though the legacy package contains indexes")
-			verifySizeIndexDoesNotExist(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles")
-		})
-	})
-
-	When("chaincode is installed using legacy lifecycle, then defined and installed using new lifecycle", func() {
-		BeforeEach(func() {
-			legacyChaincode.Path = chaincodePathWithIndex
-			newlifecycleChaincode.CodeFiles = nil
-		})
-
-		It("does not use legacy package to create indexes", func() {
-			By("installing legacy chaincode (with an index included)")
-			nwo.PackageChaincodeLegacy(network, legacyChaincode, network.Peer("Org1", "peer0"))
-			nwo.InstallChaincodeLegacy(network, legacyChaincode, network.Peer("Org1", "peer0"))
-
-			By("installing and defining chaincode (without an index included) using new lifecycle")
-			nwo.EnableCapabilities(network, "testchannel", "Application", "V2_0", orderer, network.Peer("Org1", "peer0"), network.Peer("Org2", "peer0"))
-			nwo.DeployChaincode(network, "testchannel", orderer, newlifecycleChaincode)
-			initMarble(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles", "marble_not_indexed")
-
-			By("verifying that the index should not have been created - though the legacy package contains indexes")
-			verifySizeIndexDoesNotExist(network, "testchannel", orderer, network.Peer("Org1", "peer0"), "marbles")
 		})
 	})
 })

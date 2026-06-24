@@ -41,7 +41,7 @@ func (d Duration) MarshalJSON() ([]byte, error) {
 }
 
 func (d *Duration) UnmarshalJSON(b []byte) error {
-	var v interface{}
+	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
 		return err
 	}
@@ -72,7 +72,6 @@ type ChaincodeServerUserData struct {
 	ClientKey          string   `json:"client_key"`  // PEM encoded client key
 	ClientCert         string   `json:"client_cert"` // PEM encoded client certificate
 	RootCert           string   `json:"root_cert"`   // PEM encoded peer chaincode certificate
-
 }
 
 func (c *ChaincodeServerUserData) ChaincodeServerInfo(cryptoDir string) (*ccintf.ChaincodeServerInfo, error) {

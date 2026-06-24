@@ -10,11 +10,11 @@ import (
 	"github.com/hyperledger/fabric/protoutil"
 	. "github.com/onsi/gomega"
 
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/integration/nwo"
 )
 
-func CreateBroadcastEnvelope(n *nwo.Network, entity interface{}, channel string, data []byte) *common.Envelope {
+func CreateBroadcastEnvelope(n *nwo.Network, entity any, channel string, data []byte, optionalEnvelopeType ...common.HeaderType) *common.Envelope {
 	var signer *nwo.SigningIdentity
 	switch creator := entity.(type) {
 	case *nwo.Peer:
@@ -24,8 +24,14 @@ func CreateBroadcastEnvelope(n *nwo.Network, entity interface{}, channel string,
 	}
 	Expect(signer).NotTo(BeNil())
 
+	envelopeType := common.HeaderType_MESSAGE
+
+	if len(optionalEnvelopeType) > 0 {
+		envelopeType = optionalEnvelopeType[0]
+	}
+
 	env, err := protoutil.CreateSignedEnvelope(
-		common.HeaderType_MESSAGE,
+		envelopeType,
 		channel,
 		signer,
 		&common.Envelope{Payload: data},

@@ -13,7 +13,7 @@ set -euo pipefail
 # "catch exit status 1" grep wrapper
 c1grep() { grep "$@" || test $? = 1; }
 
-EXCLUDE_FILE_PATTERN="^CHANGELOG|\.git|\.png$|^vendor/"
+EXCLUDE_FILE_PATTERN="^CHANGELOG|\.git|\.png$|^third_party/|^vendor/"
 CHECK=$(git diff --name-only HEAD -- * | c1grep -Ev $EXCLUDE_FILE_PATTERN)
 
 if [[ -z "$CHECK" ]]; then

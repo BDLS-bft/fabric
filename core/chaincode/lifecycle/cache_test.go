@@ -9,10 +9,10 @@ package lifecycle_test
 import (
 	"fmt"
 
-	"github.com/hyperledger/fabric-protos-go/ledger/queryresult"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	lb "github.com/hyperledger/fabric-protos-go/peer/lifecycle"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/queryresult"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset/kvrwset"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
+	lb "github.com/hyperledger/fabric-protos-go-apiv2/peer/lifecycle"
 	"github.com/hyperledger/fabric/common/chaincode"
 	commonledger "github.com/hyperledger/fabric/common/ledger"
 	"github.com/hyperledger/fabric/common/util"
@@ -24,7 +24,6 @@ import (
 	"github.com/hyperledger/fabric/core/ledger"
 	ledgermock "github.com/hyperledger/fabric/core/ledger/mock"
 	"github.com/hyperledger/fabric/protoutil"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -338,15 +337,36 @@ var _ = Describe("Cache", func() {
 	})
 
 	Describe("InitializeLocalChaincodes", func() {
-		It("loads the already installed chaincodes into the cache", func() {
+		It("loads the already installed chaincodes into the cache using filename metadata", func() {
 			Expect(channelCache.Chaincodes["chaincode-name"].InstallInfo).To(BeNil())
 			err := c.InitializeLocalChaincodes()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(channelCache.Chaincodes["chaincode-name"].InstallInfo).To(Equal(&lifecycle.ChaincodeInstallInfo{
-				Type:      "cc-type",
-				Path:      "cc-path",
 				PackageID: "packageID",
 			}))
+		})
+
+		It("does not call Load or Parse during initialization", func() {
+			err := c.InitializeLocalChaincodes()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fakeCCStore.LoadCallCount()).To(Equal(0))
+			Expect(fakeParser.ParseCallCount()).To(Equal(0))
+		})
+
+		It("uses the label from ListInstalledChaincodes", func() {
+			fakeCCStore.ListInstalledChaincodesReturns([]chaincode.InstalledChaincode{
+				{
+					Hash:      []byte("hash"),
+					PackageID: "packageID",
+					Label:     "my-label",
+				},
+			}, nil)
+			err := c.InitializeLocalChaincodes()
+			Expect(err).NotTo(HaveOccurred())
+
+			installedChaincodes := c.ListInstalledChaincodes()
+			Expect(installedChaincodes).To(HaveLen(1))
+			Expect(installedChaincodes[0].Label).To(Equal("my-label"))
 		})
 
 		Context("when the installed chaincode does not match any current definition", func() {
@@ -373,28 +393,6 @@ var _ = Describe("Cache", func() {
 			It("wraps and returns the error", func() {
 				err := c.InitializeLocalChaincodes()
 				Expect(err).To(MatchError("could not list installed chaincodes: list-error"))
-			})
-		})
-
-		Context("when the chaincodes cannot be loaded", func() {
-			BeforeEach(func() {
-				fakeCCStore.LoadReturns(nil, fmt.Errorf("load-error"))
-			})
-
-			It("wraps and returns the error", func() {
-				err := c.InitializeLocalChaincodes()
-				Expect(err.Error()).To(ContainSubstring("could not load chaincode with package ID 'packageID'"))
-			})
-		})
-
-		Context("when the chaincode package cannot be parsed", func() {
-			BeforeEach(func() {
-				fakeParser.ParseReturns(nil, fmt.Errorf("parse-error"))
-			})
-
-			It("wraps and returns the error", func() {
-				err := c.InitializeLocalChaincodes()
-				Expect(err.Error()).To(ContainSubstring("could not parse chaincode with package ID 'packageID'"))
 			})
 		})
 	})

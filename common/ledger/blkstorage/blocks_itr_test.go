@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/ledger/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -72,7 +72,7 @@ func TestRaceToDeadlock(t *testing.T) {
 	blocks := testutil.ConstructTestBlocks(t, 5)
 	blkfileMgrWrapper.addBlocks(blocks)
 
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		itr, err := blkfileMgr.retrieveBlocks(5)
 		if err != nil {
 			panic(err)
@@ -83,7 +83,7 @@ func TestRaceToDeadlock(t *testing.T) {
 		itr.Close()
 	}
 
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		itr, err := blkfileMgr.retrieveBlocks(5)
 		if err != nil {
 			panic(err)

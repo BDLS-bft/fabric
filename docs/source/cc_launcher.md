@@ -8,7 +8,7 @@ Starting with Fabric 2.0, External Builders and Launchers address these limitati
 
 Note that if no configured external builder claims a chaincode package, the peer will attempt to process the package as if it were created with the standard Fabric packaging tools such as the peer CLI.
 
-**Note:** This is an advanced feature which will likely require custom packaging of the peer image with everything your builders and launchers depend on unless your builders and launchers are simple enough, such as those used in the [basic asset transfer external chaincode Fabric sample](https://github.com/hyperledger/fabric-samples/blob/{BRANCH}/asset-transfer-basic/chaincode-external). For example, the following samples use `go` and `bash`, which are not included in the current official `fabric-peer` image.
+**Note:** This is an advanced feature which will likely require custom packaging of the peer image with everything your builders and launchers depend on unless your builders and launchers are simple enough, such as those used in the [basic asset transfer external chaincode Fabric sample](https://github.com/hyperledger/fabric-samples/blob/main/asset-transfer-basic/chaincode-external). For example, the following samples use `go` and `bash`, which are not included in the current official `fabric-peer` image.
 
 ## External builder model
 
@@ -101,7 +101,7 @@ When `release` completes, the peer will consume two types of metadata from `RELE
 
 If CouchDB index definitions are required for the chaincode, `release` is responsible for placing the indexes into the `statedb/couchdb/indexes` directory under `RELEASE_OUTPUT_DIR`. The indexes must have a `.json` extension.  See the [CouchDB indexes](couchdb_as_state_database.html#couchdb-indexes) documentation for details.
 
-In cases where a chaincode server implementation is used, `release` is responsible for populating `chaincode/server/connection.json` with the address of the chaincode server and any TLS assets required to communicate with the chaincode. When server connection information is provided to the peer, `run` will not be called. See the [Chaincode Server](https://jira.hyperledger.org/browse/FAB-14086) documentation for details.
+In cases where a chaincode server implementation is used, `release` is responsible for populating `chaincode/server/connection.json` with the address of the chaincode server and any TLS assets required to communicate with the chaincode. When server connection information is provided to the peer, `run` will not be called.
 
 The following is an example of a simple `release` script for go chaincode:
 
@@ -202,7 +202,7 @@ If you do not need to fallback to the legacy Docker build process for your chain
 
 ## Chaincode packages
 
-As part of the new lifecycle introduced with Fabric 2.0, the chaincode package format changed from serialized protocol buffer messages to a gzip compressed POSIX tape archive. Chaincode packages created with `peer lifecycle chaincode package` use this new format.
+A chaincode package contains chaincode and associated metadata in a compressed gzip file that can be installed to a peer. The peer command `peer lifecycle chaincode package` can be used to create a chaincode package. You can also create a chaincode package using third party tools.
 
 ### Lifecycle chaincode package contents
 

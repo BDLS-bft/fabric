@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	ab "github.com/hyperledger/fabric-protos-go/orderer"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	ab "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/common/capabilities"
 	"github.com/pkg/errors"
 )
@@ -76,6 +76,10 @@ type OrdererOrgConfig struct {
 
 // Endpoints returns the set of addresses this ordering org exposes as orderers
 func (oc *OrdererOrgConfig) Endpoints() []string {
+	if oc.protos == nil || oc.protos.Endpoints == nil {
+		return nil
+	}
+
 	return oc.protos.Endpoints.Addresses
 }
 
@@ -140,6 +144,13 @@ func NewOrdererConfig(ordererGroup *cb.ConfigGroup, mspConfig *MSPConfigHandler,
 			return nil, err
 		}
 	}
+
+	if channelCapabilities.ConsensusTypeBFT() {
+		if err := oc.validateAllOrgsHaveEndpoints(); err != nil {
+			return nil, err
+		}
+	}
+
 	return oc, nil
 }
 
@@ -228,6 +239,22 @@ func (oc *OrdererConfig) validateBatchTimeout() error {
 	return nil
 }
 
+func (oc *OrdererConfig) validateAllOrgsHaveEndpoints() error {
+	var orgsMissingEndpoints []string
+
+	for _, org := range oc.Organizations() {
+		if len(org.Endpoints()) == 0 {
+			orgsMissingEndpoints = append(orgsMissingEndpoints, org.Name())
+		}
+	}
+
+	if len(orgsMissingEndpoints) > 0 {
+		return errors.Errorf("some orderer organizations endpoints are empty: %s", orgsMissingEndpoints)
+	}
+
+	return nil
+}
+
 // This does just a barebones sanity check.
 func brokerEntrySeemsValid(broker string) bool {
 	if !strings.Contains(broker, ":") {
@@ -248,7 +275,7 @@ func brokerEntrySeemsValid(broker string) bool {
 
 	// Valid hostnames may contain only the ASCII letters 'a' through 'z' (in a
 	// case-insensitive manner), the digits '0' through '9', and the hyphen. IP
-	// v4 addresses are  represented in dot-decimal notation, which consists of
+	// v4 addresses are represented in dot-decimal notation, which consists of
 	// four decimal numbers, each ranging from 0 to 255, separated by dots,
 	// e.g., 172.16.254.1
 	// The following regular expression:

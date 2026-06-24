@@ -18,12 +18,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/discovery"
-	"github.com/hyperledger/fabric-protos-go/gossip"
-	"github.com/hyperledger/fabric-protos-go/msp"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/discovery"
+	"github.com/hyperledger/fabric-protos-go-apiv2/gossip"
+	"github.com/hyperledger/fabric-protos-go-apiv2/msp"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/chaincode"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/common/policydsl"
@@ -42,6 +41,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -418,8 +418,7 @@ func TestClient(t *testing.T) {
 		mychannel := r.ForChannel("mychannel")
 		conf, err := mychannel.Config()
 		require.NoError(t, err)
-		require.Equal(t, expectedConf.Msps, conf.Msps)
-		require.Equal(t, expectedConf.Orderers, conf.Orderers)
+		require.True(t, proto.Equal(expectedConf, conf))
 		peers, err := mychannel.Peers()
 		require.NoError(t, err)
 		// We should see all peers as provided above
@@ -533,7 +532,7 @@ func TestClient(t *testing.T) {
 		acceptablePeers := []string{"p1", "p9", "p3", "p5", "p6", "p7", "p10", "p11", "p12", "p14", "p15"}
 		used := make(map[string]struct{})
 
-		for i := 0; i < 90; i++ {
+		for range 90 {
 			endorsers, err := mychannel.Endorsers(ccCall("mycc3"), &ledgerHeightFilter{threshold: threshold})
 			require.NoError(t, err)
 			names := getNames(endorsers)
@@ -855,7 +854,7 @@ func (ip *inquireablePolicy) SatisfiedBy() []policies.PrincipalSet {
 }
 
 func peerIdentity(mspID string, i int) api.PeerIdentityInfo {
-	p := []byte(fmt.Sprintf("p%d", i))
+	p := fmt.Appendf(nil, "p%d", i)
 	sID := &msp.SerializedIdentity{
 		Mspid:   mspID,
 		IdBytes: p,

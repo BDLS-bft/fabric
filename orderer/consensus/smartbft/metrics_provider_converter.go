@@ -7,12 +7,12 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
-	api "github.com/SmartBFT-Go/consensus/pkg/metrics"
-	"github.com/hyperledger/fabric/common/metrics"
+	api "github.com/hyperledger-labs/SmartBFT/pkg/metrics"
+	"github.com/hyperledger/fabric-lib-go/common/metrics"
 )
 
 type MetricProviderConverter struct {
-	metricsProvider metrics.Provider
+	MetricsProvider metrics.Provider
 }
 
 func (m *MetricProviderConverter) NewCounter(opts api.CounterOpts) api.Counter {
@@ -26,7 +26,7 @@ func (m *MetricProviderConverter) NewCounter(opts api.CounterOpts) api.Counter {
 		StatsdFormat: opts.StatsdFormat,
 	}
 	return &CounterConverter{
-		counter: m.metricsProvider.NewCounter(o),
+		counter: m.MetricsProvider.NewCounter(o),
 	}
 }
 
@@ -41,7 +41,7 @@ func (m *MetricProviderConverter) NewGauge(opts api.GaugeOpts) api.Gauge {
 		StatsdFormat: opts.StatsdFormat,
 	}
 	return &GaugeConverter{
-		gauge: m.metricsProvider.NewGauge(o),
+		gauge: m.MetricsProvider.NewGauge(o),
 	}
 }
 
@@ -57,7 +57,7 @@ func (m *MetricProviderConverter) NewHistogram(opts api.HistogramOpts) api.Histo
 		Buckets:      opts.Buckets,
 	}
 	return &HistogramConverter{
-		histogram: m.metricsProvider.NewHistogram(o),
+		histogram: m.MetricsProvider.NewHistogram(o),
 	}
 }
 

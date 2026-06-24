@@ -10,10 +10,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/ledger/testutil"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/require"
 )
@@ -287,7 +287,8 @@ func TestDuplicateTxIDDuringRollback(t *testing.T) {
 }
 
 func assertBlockStoreRollback(t *testing.T, path, ledgerID string, blocks []*common.Block,
-	rollbackedToBlkNum uint64, lastFileSuffixNum int, indexConfig *IndexConfig) {
+	rollbackedToBlkNum uint64, lastFileSuffixNum int, indexConfig *IndexConfig,
+) {
 	env := newTestEnvSelectiveIndexing(t, NewConf(path, 0), indexConfig.AttrsToIndex, &disabled.Provider{})
 	blkfileMgrWrapper := newTestBlockfileWrapper(env, ledgerID)
 

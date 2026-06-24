@@ -12,16 +12,14 @@ import (
 	"path/filepath"
 	"syscall"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-config/protolator"
-	"github.com/hyperledger/fabric-config/protolator/protoext/ordererext"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
+	"github.com/hyperledger/fabric-config/protolator/protoext/peerext"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	"github.com/hyperledger/fabric/integration/nwo/fabricconfig"
 	"github.com/hyperledger/fabric/integration/nwo/runner"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -29,11 +27,12 @@ import (
 	. "github.com/onsi/gomega/gstruct"
 	"github.com/tedsuo/ifrit"
 	ginkgomon "github.com/tedsuo/ifrit/ginkgomon_v2"
+	"google.golang.org/protobuf/proto"
 )
 
 var _ = Describe("Lifecycle", func() {
 	var (
-		client                      *docker.Client
+		client                      dcli.APIClient
 		testDir                     string
 		network                     *nwo.Network
 		processes                   = map[string]ifrit.Process{}
@@ -48,7 +47,7 @@ var _ = Describe("Lifecycle", func() {
 		testDir, err = os.MkdirTemp("", "lifecycle")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		network = nwo.New(nwo.BasicEtcdRaft(), testDir, client, StartPort(), components)
@@ -139,7 +138,7 @@ var _ = Describe("Lifecycle", func() {
 		}
 
 		By("setting up the channel")
-		channelparticipation.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
+		nwo.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
 		network.VerifyMembership(network.PeersWithChannel("testchannel"), "testchannel")
 		nwo.EnableCapabilities(network, "testchannel", "Application", "V2_0", orderer, network.Peer("Org1", "peer0"), network.Peer("Org2", "peer0"))
 
@@ -191,8 +190,8 @@ var _ = Describe("Lifecycle", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(1))
-		Expect(sess.Err).To(gbytes.Say("Error: endorsement failure during query. response: status:500 " +
-			"message:\"make sure the chaincode My_1st-Chaincode has been successfully defined on channel testchannel and try " +
+		Expect(sess.Err).To(gbytes.Say("Error: endorsement failure during query. response: status:500 "))
+		Expect(sess.Err).To(gbytes.Say("message:\"make sure the chaincode My_1st-Chaincode has been successfully defined on channel testchannel and try " +
 			"again: chaincode definition for 'My_1st-Chaincode' exists, but chaincode is not installed\""))
 
 		By("setting the correct package ID to restore the chaincode")
@@ -234,7 +233,8 @@ var _ = Describe("Lifecycle", func() {
 
 		By("ensuring the previous chaincode package is no longer referenced by a chaincode definition on the channel")
 		Expect(nwo.QueryInstalled(network, network.Peer("Org2", "peer0"))()).To(
-			ContainElement(MatchFields(IgnoreExtras,
+			ContainElement(MatchFields(
+				IgnoreExtras,
 				Fields{
 					"Label":      Equal(previousLabel),
 					"PackageId":  Equal(previousPackageID),
@@ -304,13 +304,13 @@ var _ = Describe("Lifecycle", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
-		org3Group := &ordererext.DynamicOrdererOrgGroup{ConfigGroup: &common.ConfigGroup{}}
+		org3Group := &peerext.DynamicApplicationOrgGroup{ConfigGroup: &common.ConfigGroup{}}
 		err = protolator.DeepUnmarshalJSON(bytes.NewBuffer(sess.Out.Contents()), org3Group)
 		Expect(err).NotTo(HaveOccurred())
 
 		// update the channel config to include org3
 		updatedConfig.ChannelGroup.Groups["Application"].Groups["Org3"] = org3Group.ConfigGroup
-		nwo.UpdateConfig(network, orderer, "testchannel", currentConfig, updatedConfig, true, testPeers[0], testPeers...)
+		nwo.UpdateConfig(network, orderer, "testchannel", currentConfig, updatedConfig, true, testPeers[0], nil, testPeers...)
 
 		By("joining the org3 peers to the channel")
 		network.JoinChannel("testchannel", orderer, org3peer0)

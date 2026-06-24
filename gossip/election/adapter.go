@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	proto "github.com/hyperledger/fabric-protos-go/gossip"
+	proto "github.com/hyperledger/fabric-protos-go-apiv2/gossip"
 	"github.com/hyperledger/fabric/gossip/common"
 	"github.com/hyperledger/fabric/gossip/discovery"
 	"github.com/hyperledger/fabric/gossip/metrics"
@@ -78,7 +78,8 @@ type adapterImpl struct {
 
 // NewAdapter creates new leader election adapter
 func NewAdapter(gossip gossip, pkiid common.PKIidType, channel common.ChannelID,
-	metrics *metrics.ElectionMetrics) LeaderElectionAdapter {
+	metrics *metrics.ElectionMetrics,
+) LeaderElectionAdapter {
 	return &adapterImpl{
 		gossip:    gossip,
 		selfPKIid: pkiid,
@@ -101,7 +102,7 @@ func (ai *adapterImpl) Gossip(msg Msg) {
 }
 
 func (ai *adapterImpl) Accept() <-chan Msg {
-	adapterCh, _ := ai.gossip.Accept(func(message interface{}) bool {
+	adapterCh, _ := ai.gossip.Accept(func(message any) bool {
 		// Get only leadership org and channel messages
 		return message.(*proto.GossipMessage).Tag == proto.GossipMessage_CHAN_AND_ORG &&
 			protoext.IsLeadershipMsg(message.(*proto.GossipMessage)) &&

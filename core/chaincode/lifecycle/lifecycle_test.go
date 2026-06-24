@@ -9,21 +9,21 @@ package lifecycle_test
 import (
 	"fmt"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	lb "github.com/hyperledger/fabric-protos-go/peer/lifecycle"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
+	lb "github.com/hyperledger/fabric-protos-go-apiv2/peer/lifecycle"
 	"github.com/hyperledger/fabric/common/chaincode"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/core/chaincode/lifecycle"
 	"github.com/hyperledger/fabric/core/chaincode/lifecycle/mock"
 	"github.com/hyperledger/fabric/core/chaincode/persistence"
 	"github.com/hyperledger/fabric/core/container"
+	. "github.com/hyperledger/fabric/internal/test"
 	"github.com/hyperledger/fabric/protoutil"
-	"github.com/pkg/errors"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 var _ = Describe("ChaincodeParameters", func() {
@@ -188,7 +188,8 @@ var _ = Describe("Resources", func() {
 		Context("when the metadata is not for a chaincode", func() {
 			BeforeEach(func() {
 				type badStruct struct{}
-				err := resources.Serializer.Serialize(lifecycle.NamespacesName,
+				err := resources.Serializer.Serialize(
+					lifecycle.NamespacesName,
 					"cc-name",
 					&badStruct{},
 					fakePublicState,
@@ -667,11 +668,11 @@ var _ = Describe("ExternalFunctions", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(committedDefinition.EndorsementInfo.Version).To(Equal("version"))
 			Expect(committedDefinition.EndorsementInfo.EndorsementPlugin).To(Equal("my endorsement plugin"))
-			Expect(proto.Equal(committedDefinition.ValidationInfo, &lb.ChaincodeValidationInfo{
+			Expect(committedDefinition.ValidationInfo).To(ProtoEqual(&lb.ChaincodeValidationInfo{
 				ValidationPlugin:    "my validation plugin",
 				ValidationParameter: []byte("some awesome policy"),
-			})).To(BeTrue())
-			Expect(proto.Equal(committedDefinition.Collections, &pb.CollectionConfigPackage{})).To(BeTrue())
+			}))
+			Expect(committedDefinition.Collections).To(ProtoEqual(&pb.CollectionConfigPackage{}))
 
 			metadata, ok, err = resources.Serializer.DeserializeMetadata("chaincode-sources", "cc-name#5", fakeOrgState)
 			Expect(err).NotTo(HaveOccurred())
@@ -703,16 +704,17 @@ var _ = Describe("ExternalFunctions", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(committedDefinition.EndorsementInfo.Version).To(Equal("version"))
 				Expect(committedDefinition.EndorsementInfo.EndorsementPlugin).To(Equal("escc"))
-				Expect(proto.Equal(committedDefinition.ValidationInfo, &lb.ChaincodeValidationInfo{
+				Expect(committedDefinition.ValidationInfo).To(ProtoEqual(&lb.ChaincodeValidationInfo{
 					ValidationPlugin: "vscc",
 					ValidationParameter: protoutil.MarshalOrPanic(
 						&pb.ApplicationPolicy{
 							Type: &pb.ApplicationPolicy_ChannelConfigPolicyReference{
 								ChannelConfigPolicyReference: "/Channel/Application/Endorsement",
 							},
-						}),
-				})).To(BeTrue())
-				Expect(proto.Equal(committedDefinition.Collections, &pb.CollectionConfigPackage{})).To(BeTrue())
+						},
+					),
+				}))
+				Expect(committedDefinition.Collections).To(ProtoEqual(&pb.CollectionConfigPackage{}))
 			})
 
 			Context("when no default endorsement policy is defined on thc channel", func() {
@@ -1011,7 +1013,6 @@ var _ = Describe("ExternalFunctions", func() {
 				fakeOrg1State,
 			}
 			for i, kvs := range []MapLedgerShim{org0KVS, org1KVS} {
-				kvs := kvs
 				fakeOrgStates[i].GetStateStub = kvs.GetState
 				fakeOrgStates[i].GetStateHashStub = kvs.GetStateHash
 				fakeOrgStates[i].PutStateStub = kvs.PutState
@@ -1054,7 +1055,8 @@ var _ = Describe("ExternalFunctions", func() {
 						Type: &pb.ApplicationPolicy_ChannelConfigPolicyReference{
 							ChannelConfigPolicyReference: "/Channel/Application/Endorsement",
 						},
-					})
+					},
+				)
 
 				resources.Serializer.Serialize("namespaces", "cc-name#5", testDefinition.Parameters(), fakeOrgStates[0])
 
@@ -1181,7 +1183,6 @@ var _ = Describe("ExternalFunctions", func() {
 				fakeOrg1State,
 			}
 			for i, kvs := range []MapLedgerShim{org0KVS, org1KVS} {
-				kvs := kvs
 				fakeOrgStates[i].GetStateStub = kvs.GetState
 				fakeOrgStates[i].GetStateHashStub = kvs.GetStateHash
 				fakeOrgStates[i].PutStateStub = kvs.PutState
@@ -1202,22 +1203,22 @@ var _ = Describe("ExternalFunctions", func() {
 			cc, err := ef.QueryApprovedChaincodeDefinition("my-channel", "cc-name", 3, fakePublicState, fakeOrgStates[0])
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cc.Sequence).To(Equal(int64(3)))
-			Expect(proto.Equal(cc.EndorsementInfo, &lb.ChaincodeEndorsementInfo{
+			Expect(cc.EndorsementInfo).To(ProtoEqual(&lb.ChaincodeEndorsementInfo{
 				Version:           "version",
 				EndorsementPlugin: "endorsement-plugin",
-			})).To(BeTrue())
-			Expect(proto.Equal(cc.ValidationInfo, &lb.ChaincodeValidationInfo{
+			}))
+			Expect(cc.ValidationInfo).To(ProtoEqual(&lb.ChaincodeValidationInfo{
 				ValidationPlugin:    "validation-plugin",
 				ValidationParameter: []byte("validation-parameter"),
-			})).To(BeTrue())
-			Expect(proto.Equal(cc.Collections, &pb.CollectionConfigPackage{})).To(BeTrue())
-			Expect(proto.Equal(cc.Source, &lb.ChaincodeSource{
+			}))
+			Expect(cc.Collections).To(ProtoEqual(&pb.CollectionConfigPackage{}))
+			Expect(cc.Source).To(ProtoEqual(&lb.ChaincodeSource{
 				Type: &lb.ChaincodeSource_LocalPackage{
 					LocalPackage: &lb.ChaincodeSource_Local{
 						PackageId: "hash",
 					},
 				},
-			})).To(BeTrue())
+			}))
 		})
 
 		Context("when the next sequence is not defined and the sequence argument is not provided", func() {
@@ -1225,22 +1226,22 @@ var _ = Describe("ExternalFunctions", func() {
 				cc, err := ef.QueryApprovedChaincodeDefinition("my-channel", "cc-name", 0, fakePublicState, fakeOrgStates[0])
 				Expect(err).NotTo(HaveOccurred())
 				Expect(cc.Sequence).To(Equal(int64(4)))
-				Expect(proto.Equal(cc.EndorsementInfo, &lb.ChaincodeEndorsementInfo{
+				Expect(cc.EndorsementInfo).To(ProtoEqual(&lb.ChaincodeEndorsementInfo{
 					Version:           "version",
 					EndorsementPlugin: "endorsement-plugin",
-				})).To(BeTrue())
-				Expect(proto.Equal(cc.ValidationInfo, &lb.ChaincodeValidationInfo{
+				}))
+				Expect(cc.ValidationInfo).To(ProtoEqual(&lb.ChaincodeValidationInfo{
 					ValidationPlugin:    "validation-plugin",
 					ValidationParameter: []byte("validation-parameter"),
-				})).To(BeTrue())
-				Expect(proto.Equal(cc.Collections, &pb.CollectionConfigPackage{})).To(BeTrue())
-				Expect(proto.Equal(cc.Source, &lb.ChaincodeSource{
+				}))
+				Expect(cc.Collections).To(ProtoEqual(&pb.CollectionConfigPackage{}))
+				Expect(cc.Source).To(ProtoEqual(&lb.ChaincodeSource{
 					Type: &lb.ChaincodeSource_LocalPackage{
 						LocalPackage: &lb.ChaincodeSource_Local{
 							PackageId: "hash",
 						},
 					},
-				})).To(BeTrue())
+				}))
 			})
 		})
 
@@ -1255,20 +1256,20 @@ var _ = Describe("ExternalFunctions", func() {
 				cc, err := ef.QueryApprovedChaincodeDefinition("my-channel", "cc-name", 0, fakePublicState, fakeOrgStates[0])
 				Expect(err).NotTo(HaveOccurred())
 				Expect(cc.Sequence).To(Equal(int64(5)))
-				Expect(proto.Equal(cc.EndorsementInfo, &lb.ChaincodeEndorsementInfo{
+				Expect(cc.EndorsementInfo).To(ProtoEqual(&lb.ChaincodeEndorsementInfo{
 					Version:           "version",
 					EndorsementPlugin: "endorsement-plugin",
-				})).To(BeTrue())
-				Expect(proto.Equal(cc.ValidationInfo, &lb.ChaincodeValidationInfo{
+				}))
+				Expect(cc.ValidationInfo).To(ProtoEqual(&lb.ChaincodeValidationInfo{
 					ValidationPlugin:    "validation-plugin",
 					ValidationParameter: []byte("validation-parameter"),
-				})).To(BeTrue())
-				Expect(proto.Equal(cc.Collections, &pb.CollectionConfigPackage{})).To(BeTrue())
-				Expect(proto.Equal(cc.Source, &lb.ChaincodeSource{
+				}))
+				Expect(cc.Collections).To(ProtoEqual(&pb.CollectionConfigPackage{}))
+				Expect(cc.Source).To(ProtoEqual(&lb.ChaincodeSource{
 					Type: &lb.ChaincodeSource_Unavailable_{
 						Unavailable: &lb.ChaincodeSource_Unavailable{},
 					},
-				})).To(BeTrue())
+				}))
 			})
 
 			Context("and deserializing namespace metadata for next sequence fails", func() {
@@ -1296,22 +1297,22 @@ var _ = Describe("ExternalFunctions", func() {
 				cc, err := ef.QueryApprovedChaincodeDefinition("my-channel", "cc-name", 5, fakePublicState, fakeOrgStates[0])
 				Expect(err).NotTo(HaveOccurred())
 				Expect(cc.Sequence).To(Equal(int64(5)))
-				Expect(proto.Equal(cc.EndorsementInfo, &lb.ChaincodeEndorsementInfo{
+				Expect(cc.EndorsementInfo).To(ProtoEqual(&lb.ChaincodeEndorsementInfo{
 					Version:           "version",
 					EndorsementPlugin: "endorsement-plugin",
-				})).To(BeTrue())
-				Expect(proto.Equal(cc.ValidationInfo, &lb.ChaincodeValidationInfo{
+				}))
+				Expect(cc.ValidationInfo).To(ProtoEqual(&lb.ChaincodeValidationInfo{
 					ValidationPlugin:    "validation-plugin",
 					ValidationParameter: []byte("validation-parameter"),
-				})).To(BeTrue())
-				Expect(proto.Equal(cc.Collections, &pb.CollectionConfigPackage{})).To(BeTrue())
-				Expect(proto.Equal(cc.Source, &lb.ChaincodeSource{
+				}))
+				Expect(cc.Collections).To(ProtoEqual(&pb.CollectionConfigPackage{}))
+				Expect(cc.Source).To(ProtoEqual(&lb.ChaincodeSource{
 					Type: &lb.ChaincodeSource_LocalPackage{
 						LocalPackage: &lb.ChaincodeSource_Local{
 							PackageId: "hash",
 						},
 					},
-				})).To(BeTrue())
+				}))
 			})
 		})
 
@@ -1381,7 +1382,7 @@ var _ = Describe("ExternalFunctions", func() {
 
 			It("wraps and returns the error", func() {
 				cc, err := ef.QueryApprovedChaincodeDefinition("my-channel", "cc-name", 5, fakePublicState, fakeOrgStates[0])
-				Expect(err).To(MatchError("could not fetch approved chaincode definition (name: 'cc-name', sequence: '5') on channel 'my-channel'"))
+				Expect(err).To(MatchError("could not fetch chaincode-source metadata for cc-name#5"))
 				Expect(cc).To(BeNil())
 			})
 		})
@@ -1421,6 +1422,133 @@ var _ = Describe("ExternalFunctions", func() {
 			It("wraps and returns the error", func() {
 				cc, err := ef.QueryApprovedChaincodeDefinition("my-channel", "cc-name", 4, fakePublicState, fakeOrgStates[0])
 				Expect(err).To(MatchError("not a chaincode local package type: badStruct"))
+				Expect(cc).To(BeNil())
+			})
+		})
+	})
+
+	Describe("QueryApprovedChaincodeDefinitions", func() {
+		var (
+			fakePublicState *mock.ReadWritableState
+			fakeOrgStates   []*mock.ReadWritableState
+
+			testDefinition            *lifecycle.ChaincodeDefinition
+			testChaincodeLocalPackage *lifecycle.ChaincodeLocalPackage
+
+			publicKVS, org0KVS, org1KVS MapLedgerShim
+		)
+
+		BeforeEach(func() {
+			testDefinition = &lifecycle.ChaincodeDefinition{
+				Sequence: 4,
+				EndorsementInfo: &lb.ChaincodeEndorsementInfo{
+					Version:           "version",
+					EndorsementPlugin: "endorsement-plugin",
+				},
+				ValidationInfo: &lb.ChaincodeValidationInfo{
+					ValidationPlugin:    "validation-plugin",
+					ValidationParameter: []byte("validation-parameter"),
+				},
+			}
+
+			testChaincodeLocalPackage = &lifecycle.ChaincodeLocalPackage{
+				PackageID: "hash",
+			}
+
+			publicKVS = map[string][]byte{}
+			fakePublicState = &mock.ReadWritableState{}
+			fakePublicState.GetStateStub = publicKVS.GetState
+			fakePublicState.PutStateStub = publicKVS.PutState
+
+			resources.Serializer.Serialize("namespaces", "cc-name", testDefinition, publicKVS)
+
+			org0KVS = map[string][]byte{}
+			org1KVS = map[string][]byte{}
+			fakeOrg0State := &mock.ReadWritableState{}
+			fakeOrg0State.CollectionNameReturns("_implicit_org_org0")
+			fakeOrg1State := &mock.ReadWritableState{}
+			fakeOrg1State.CollectionNameReturns("_implicit_org_org1")
+			fakeOrgStates = []*mock.ReadWritableState{
+				fakeOrg0State,
+				fakeOrg1State,
+			}
+			for i, kvs := range []MapLedgerShim{org0KVS, org1KVS} {
+				fakeOrgStates[i].GetStateStub = kvs.GetState
+				fakeOrgStates[i].GetStateHashStub = kvs.GetStateHash
+				fakeOrgStates[i].PutStateStub = kvs.PutState
+				fakeOrgStates[i].GetStateRangeStub = kvs.GetStateRange
+			}
+
+			resources.Serializer.Serialize("namespaces", "cc-name#3", testDefinition.Parameters(), fakeOrgStates[0])
+			resources.Serializer.Serialize("chaincode-sources", "cc-name#3", testChaincodeLocalPackage, fakeOrgStates[0])
+			resources.Serializer.Serialize("namespaces", "cc-name#3", testDefinition.Parameters(), fakeOrgStates[1])
+			resources.Serializer.Serialize("chaincode-sources", "cc-name#3", testChaincodeLocalPackage, fakeOrgStates[1])
+
+			resources.Serializer.Serialize("namespaces", "cc-name#4", testDefinition.Parameters(), fakeOrgStates[0])
+			resources.Serializer.Serialize("chaincode-sources", "cc-name#4", testChaincodeLocalPackage, fakeOrgStates[0])
+			resources.Serializer.Serialize("namespaces", "cc-name#4", testDefinition.Parameters(), fakeOrgStates[1])
+			resources.Serializer.Serialize("chaincode-sources", "cc-name#4", testChaincodeLocalPackage, fakeOrgStates[1])
+
+			resources.Serializer.Serialize("namespaces", "cc-name2#1", testDefinition.Parameters(), fakeOrgStates[0])
+			resources.Serializer.Serialize("chaincode-sources", "cc-name2#1", testChaincodeLocalPackage, fakeOrgStates[0])
+			resources.Serializer.Serialize("namespaces", "cc-name2#1", testDefinition.Parameters(), fakeOrgStates[1])
+			resources.Serializer.Serialize("chaincode-sources", "cc-name2#1", testChaincodeLocalPackage, fakeOrgStates[1])
+		})
+
+		It("returns the approved chaincodes", func() {
+			acds, err := ef.QueryApprovedChaincodeDefinitions("my-channel", fakeOrgStates[0])
+			Expect(len(acds)).To(Equal(3))
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		Context("when deserializing namespace metadatas fails", func() {
+			BeforeEach(func() {
+				org0KVS["namespaces/metadata/cc-name#5"] = []byte("garbage")
+			})
+
+			It("wraps and returns the error", func() {
+				cc, err := ef.QueryApprovedChaincodeDefinitions("my-channel", fakeOrgStates[0])
+				Expect(err).To(Not(BeNil()))
+				Expect(err.Error()).To(HavePrefix("could not fetch metadatas"))
+				Expect(cc).To(BeNil())
+			})
+		})
+
+		Context("when namespace metadata has a bad key", func() {
+			BeforeEach(func() {
+				resources.Serializer.Serialize("namespaces", "badkey", testDefinition.Parameters(), fakeOrgStates[0])
+			})
+
+			It("wraps and returns the error", func() {
+				cc, err := ef.QueryApprovedChaincodeDefinitions("my-channel", fakeOrgStates[0])
+				Expect(err).To(Not(BeNil()))
+				Expect(err.Error()).To(HavePrefix("could not extract chaincode name and sequence number from metadata: badkey: invalid private name format: badkey"))
+				Expect(cc).To(BeNil())
+			})
+		})
+
+		Context("when namespace metadata has a key with bad sequence", func() {
+			BeforeEach(func() {
+				resources.Serializer.Serialize("namespaces", "cc-name#bad-sequence", testDefinition.Parameters(), fakeOrgStates[0])
+			})
+
+			It("wraps and returns the error", func() {
+				cc, err := ef.QueryApprovedChaincodeDefinitions("my-channel", fakeOrgStates[0])
+				Expect(err).To(Not(BeNil()))
+				Expect(err.Error()).To(HavePrefix("could not extract chaincode name and sequence number from metadata: cc-name#bad-sequence: invalid sequence number in private name"))
+				Expect(cc).To(BeNil())
+			})
+		})
+
+		Context("when deserializing chaincode-source metadata fails", func() {
+			BeforeEach(func() {
+				org0KVS["chaincode-sources/metadata/cc-name#4"] = []byte("garbage")
+			})
+
+			It("wraps and returns the error", func() {
+				cc, err := ef.QueryApprovedChaincodeDefinitions("my-channel", fakeOrgStates[0])
+				Expect(err).To(Not(BeNil()))
+				Expect(err.Error()).To(HavePrefix("could not fetch approved chaincode definition (name: 'cc-name', sequence: '4') on channel 'my-channel': could not deserialize chaincode-source metadata for cc-name#4"))
 				Expect(cc).To(BeNil())
 			})
 		})
@@ -1477,7 +1605,6 @@ var _ = Describe("ExternalFunctions", func() {
 				fakeOrg1State,
 			}
 			for i, kvs := range []MapLedgerShim{org0KVS, org1KVS} {
-				kvs := kvs
 				fakeOrgStates[i].GetStateStub = kvs.GetState
 				fakeOrgStates[i].GetStateHashStub = kvs.GetStateHash
 				fakeOrgStates[i].PutStateStub = kvs.PutState
@@ -1516,7 +1643,8 @@ var _ = Describe("ExternalFunctions", func() {
 						Type: &pb.ApplicationPolicy_ChannelConfigPolicyReference{
 							ChannelConfigPolicyReference: "/Channel/Application/Endorsement",
 						},
-					})
+					},
+				)
 
 				resources.Serializer.Serialize("namespaces", "cc-name#5", testDefinition.Parameters(), fakeOrgStates[0])
 
@@ -1666,7 +1794,6 @@ var _ = Describe("ExternalFunctions", func() {
 				fakeOrg1State,
 			}
 			for i, kvs := range []MapLedgerShim{org0KVS, org1KVS} {
-				kvs := kvs
 				fakeOrgStates[i].GetStateStub = kvs.GetState
 				fakeOrgStates[i].GetStateHashStub = kvs.GetStateHash
 				fakeOrgStates[i].PutStateStub = kvs.PutState
@@ -1680,15 +1807,15 @@ var _ = Describe("ExternalFunctions", func() {
 			cc, err := ef.QueryChaincodeDefinition("cc-name", fakePublicState)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cc.Sequence).To(Equal(int64(4)))
-			Expect(proto.Equal(cc.EndorsementInfo, &lb.ChaincodeEndorsementInfo{
+			Expect(cc.EndorsementInfo).To(ProtoEqual(&lb.ChaincodeEndorsementInfo{
 				Version:           "version",
 				EndorsementPlugin: "endorsement-plugin",
-			})).To(BeTrue())
-			Expect(proto.Equal(cc.ValidationInfo, &lb.ChaincodeValidationInfo{
+			}))
+			Expect(cc.ValidationInfo).To(ProtoEqual(&lb.ChaincodeValidationInfo{
 				ValidationPlugin:    "validation-plugin",
 				ValidationParameter: []byte("validation-parameter"),
-			})).To(BeTrue())
-			Expect(proto.Equal(cc.Collections, &pb.CollectionConfigPackage{})).To(BeTrue())
+			}))
+			Expect(cc.Collections).To(ProtoEqual(&pb.CollectionConfigPackage{}))
 		})
 
 		Context("when the chaincode is not defined", func() {
@@ -1763,7 +1890,6 @@ var _ = Describe("ExternalFunctions", func() {
 				fakeOrg1State,
 			}
 			for i, kvs := range []MapLedgerShim{org0KVS, org1KVS} {
-				kvs := kvs
 				fakeOrgStates[i].GetStateStub = kvs.GetState
 				fakeOrgStates[i].GetStateHashStub = kvs.GetStateHash
 				fakeOrgStates[i].PutStateStub = kvs.PutState

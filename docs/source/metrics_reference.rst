@@ -12,7 +12,7 @@ The following orderer metrics are exported for consumption by Prometheus.
 +------------------------------------------------------+-----------+------------------------------------------------------------+--------------------------------------------------------------------------------+
 | Name                                                 | Type      | Description                                                | Labels                                                                         |
 +======================================================+===========+============================================================+===========+====================================================================+
-| blockcutter_block_fill_duration                      | histogram | The time from first transaction enqueing to the block      | channel   |                                                                    |
+| blockcutter_block_fill_duration                      | histogram | The time from first transaction enqueuing to the block     | channel   |                                                                    |
 |                                                      |           | being cut in seconds.                                      |           |                                                                    |
 +------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
 | broadcast_enqueue_duration                           | histogram | The time to enqueue a transaction in seconds.              | channel   |                                                                    |
@@ -70,6 +70,36 @@ The following orderer metrics are exported for consumption by Prometheus.
 +------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
 | consensus_BFT_leader_id                              | gauge     | The id of the current leader according to the latest       | channel   |                                                                    |
 |                                                      |           | committed block.                                           |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_BFT_proposal_finality_duration             | histogram | Leader-local time from assembling a SmartBFT proposal to   | channel   |                                                                    |
+|                                                      |           | delivering the matching decision.                          |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_block_signature_duration              | histogram | Time spent exchanging and collecting Fabric BFT block      | channel   |                                                                    |
+|                                                      |           | metadata signatures.                                       |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_cluster_size                          | gauge     | Number of participants in the BDLS consensus group for     | channel   |                                                                    |
+|                                                      |           | this channel.                                              |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_commit_pipeline_duration              | histogram | Time from detecting a BDLS-finalised block to completing   | channel   |                                                                    |
+|                                                      |           | ledger commit.                                             |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_committed_block_number                | gauge     | The number of the latest BDLS-finalised block on this      | channel   |                                                                    |
+|                                                      |           | channel.                                                   |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_consensus_finality_duration           | histogram | Time from submitting a local BDLS proposal to observing    | channel   |                                                                    |
+|                                                      |           | the matching BDLS decision.                                |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_is_leader                             | gauge     | 1 if this node is the leader of the current BDLS round,    | channel   |                                                                    |
+|                                                      |           | else 0.                                                    |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_leader_id                             | gauge     | The participant id of the current BDLS leader for the      | channel   |                                                                    |
+|                                                      |           | latest committed block.                                    |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_ledger_write_duration                 | histogram | Time spent writing a BDLS-finalised block to the local     | channel   |                                                                    |
+|                                                      |           | ledger.                                                    |           |                                                                    |
++------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
+| consensus_bdls_proposal_failures                     | counter   | Count of proposal submission / marshal failures surfaced   | channel   |                                                                    |
+|                                                      |           | by the chain run-loop.                                     |           |                                                                    |
 +------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
 | consensus_etcdraft_active_nodes                      | gauge     | Number of active nodes in this channel.                    | channel   |                                                                    |
 +------------------------------------------------------+-----------+------------------------------------------------------------+-----------+--------------------------------------------------------------------+
@@ -252,7 +282,7 @@ associated with the metric.
 +---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
 | Bucket                                                                    | Type      | Description                                                |
 +===========================================================================+===========+============================================================+
-| blockcutter.block_fill_duration.%{channel}                                | histogram | The time from first transaction enqueing to the block      |
+| blockcutter.block_fill_duration.%{channel}                                | histogram | The time from first transaction enqueuing to the block     |
 |                                                                           |           | being cut in seconds.                                      |
 +---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
 | broadcast.enqueue_duration.%{channel}.%{type}.%{status}                   | histogram | The time to enqueue a transaction in seconds.              |
@@ -286,6 +316,36 @@ associated with the metric.
 +---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
 | consensus.BFT.leader_id.%{channel}                                        | gauge     | The id of the current leader according to the latest       |
 |                                                                           |           | committed block.                                           |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.BFT.proposal_finality_duration.%{channel}                       | histogram | Leader-local time from assembling a SmartBFT proposal to   |
+|                                                                           |           | delivering the matching decision.                          |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.block_signature_duration.%{channel}                        | histogram | Time spent exchanging and collecting Fabric BFT block      |
+|                                                                           |           | metadata signatures.                                       |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.cluster_size.%{channel}                                    | gauge     | Number of participants in the BDLS consensus group for     |
+|                                                                           |           | this channel.                                              |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.commit_pipeline_duration.%{channel}                        | histogram | Time from detecting a BDLS-finalised block to completing   |
+|                                                                           |           | ledger commit.                                             |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.committed_block_number.%{channel}                          | gauge     | The number of the latest BDLS-finalised block on this      |
+|                                                                           |           | channel.                                                   |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.consensus_finality_duration.%{channel}                     | histogram | Time from submitting a local BDLS proposal to observing    |
+|                                                                           |           | the matching BDLS decision.                                |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.is_leader.%{channel}                                       | gauge     | 1 if this node is the leader of the current BDLS round,    |
+|                                                                           |           | else 0.                                                    |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.leader_id.%{channel}                                       | gauge     | The participant id of the current BDLS leader for the      |
+|                                                                           |           | latest committed block.                                    |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.ledger_write_duration.%{channel}                           | histogram | Time spent writing a BDLS-finalised block to the local     |
+|                                                                           |           | ledger.                                                    |
++---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
+| consensus.bdls.proposal_failures.%{channel}                               | counter   | Count of proposal submission / marshal failures surfaced   |
+|                                                                           |           | by the chain run-loop.                                     |
 +---------------------------------------------------------------------------+-----------+------------------------------------------------------------+
 | consensus.etcdraft.active_nodes.%{channel}                                | gauge     | Number of active nodes in this channel.                    |
 +---------------------------------------------------------------------------+-----------+------------------------------------------------------------+

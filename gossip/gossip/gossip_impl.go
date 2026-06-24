@@ -15,8 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	pg "github.com/hyperledger/fabric-protos-go/gossip"
+	pg "github.com/hyperledger/fabric-protos-go-apiv2/gossip"
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/gossip/comm"
 	"github.com/hyperledger/fabric/gossip/common"
@@ -32,6 +31,7 @@ import (
 	"github.com/hyperledger/fabric/gossip/util"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -72,7 +72,8 @@ type Node struct {
 func New(conf *Config, s *grpc.Server, sa api.SecurityAdvisor,
 	mcs api.MessageCryptoService, selfIdentity api.PeerIdentityType,
 	secureDialOpts api.PeerSecureDialOpts, gossipMetrics *metrics.GossipMetrics,
-	anchorPeerTracker discovery.AnchorPeerTracker) *Node {
+	anchorPeerTracker discovery.AnchorPeerTracker,
+) *Node {
 	var err error
 
 	lgr := util.GetLogger(util.GossipLogger, conf.ID)
@@ -96,8 +97,24 @@ func New(conf *Config, s *grpc.Server, sa api.SecurityAdvisor,
 	g.stateInfoMsgStore = g.newStateInfoMsgStore()
 
 	g.idMapper = identity.NewIdentityMapper(mcs, selfIdentity, func(pkiID common.PKIidType, identity api.PeerIdentityType) {
-		g.comm.CloseConn(&comm.RemotePeer{PKIID: pkiID})
+		// Identities which are purged from the membership store
+		// should not be communicated with anymore, as the purge is done
+		// because the identity of the corresponding PKI-ID not being
+		// valid anymore, such as it being expired.
+
+		// Remove the identity from the identity replication
+		// for it to not be replicated any further.
 		g.certPuller.Remove(string(pkiID))
+
+		// Notify the identity switch channel of the communication layer,
+		// which in turn is used to notify the discovery layer
+		// about the PKI-ID not being relevant anymore, which causes
+		// the discovery layer to purge it from memory.
+		// Afterwards, gossip never communicates with this PKI-ID.
+		g.comm.IdentitySwitch() <- pkiID
+
+		// Cease communication with the node, if connected to it.
+		g.comm.CloseConn(&comm.RemotePeer{PKIID: pkiID})
 	}, sa)
 
 	commConfig := comm.CommConfig{
@@ -108,7 +125,6 @@ func New(conf *Config, s *grpc.Server, sa api.SecurityAdvisor,
 	}
 	g.comm, err = comm.NewCommInstance(s, conf.TLSCerts, g.idMapper, selfIdentity, secureDialOpts, sa,
 		gossipMetrics.CommMetrics, commConfig)
-
 	if err != nil {
 		lgr.Error("Failed instantiating communication layer:", err)
 		return nil
@@ -295,7 +311,7 @@ func (g *Node) start() {
 	go g.syncDiscovery()
 	go g.handlePresumedDead()
 
-	msgSelector := func(msg interface{}) bool {
+	msgSelector := func(msg any) bool {
 		gMsg, isGossipMsg := msg.(protoext.ReceivedMessage)
 		if !isGossipMsg {
 			return false
@@ -421,7 +437,7 @@ func (g *Node) validateMsg(msg protoext.ReceivedMessage) bool {
 	return true
 }
 
-func (g *Node) sendGossipBatch(a []interface{}) {
+func (g *Node) sendGossipBatch(a []any) {
 	msgs2Gossip := make([]*emittedGossipMessage, len(a))
 	for i, e := range a {
 		msgs2Gossip[i] = e.(*emittedGossipMessage)
@@ -452,13 +468,13 @@ func (g *Node) gossipBatch(msgs []*emittedGossipMessage) {
 	var orgMsgs []*emittedGossipMessage
 	var leadershipMsgs []*emittedGossipMessage
 
-	isABlock := func(o interface{}) bool {
+	isABlock := func(o any) bool {
 		return protoext.IsDataMsg(o.(*emittedGossipMessage).GossipMessage)
 	}
-	isAStateInfoMsg := func(o interface{}) bool {
+	isAStateInfoMsg := func(o any) bool {
 		return protoext.IsStateInfoMsg(o.(*emittedGossipMessage).GossipMessage)
 	}
-	aliveMsgsWithNoEndpointAndInOurOrg := func(o interface{}) bool {
+	aliveMsgsWithNoEndpointAndInOurOrg := func(o any) bool {
 		msg := o.(*emittedGossipMessage)
 		if !protoext.IsAliveMsg(msg.GossipMessage) {
 			return false
@@ -466,10 +482,10 @@ func (g *Node) gossipBatch(msgs []*emittedGossipMessage) {
 		member := msg.GetAliveMsg().Membership
 		return member.Endpoint == "" && g.IsInMyOrg(discovery.NetworkMember{PKIid: member.PkiId})
 	}
-	isOrgRestricted := func(o interface{}) bool {
+	isOrgRestricted := func(o any) bool {
 		return aliveMsgsWithNoEndpointAndInOurOrg(o) || protoext.IsOrgRestricted(o.(*emittedGossipMessage).GossipMessage)
 	}
-	isLeadershipMsg := func(o interface{}) bool {
+	isLeadershipMsg := func(o any) bool {
 		return protoext.IsLeadershipMsg(o.(*emittedGossipMessage).GossipMessage)
 	}
 
@@ -559,7 +575,7 @@ func (g *Node) gossipInChan(messages []*emittedGossipMessage, chanRoutingFactory
 		// Take first channel
 		channel, totalChannels = totalChannels[0], totalChannels[1:]
 		// Extract all messages of that channel
-		grabMsgs := func(o interface{}) bool {
+		grabMsgs := func(o any) bool {
 			return bytes.Equal(o.(*emittedGossipMessage).Channel, channel)
 		}
 		messagesOfChannel, messages = partitionMessages(grabMsgs, messages)
@@ -802,7 +818,7 @@ func (g *Node) Accept(acceptor common.MessageAcceptor, passThrough bool) (<-chan
 	if passThrough {
 		return nil, g.comm.Accept(acceptor)
 	}
-	acceptByType := func(o interface{}) bool {
+	acceptByType := func(o any) bool {
 		if o, isGossipMsg := o.(*pg.GossipMessage); isGossipMsg {
 			return acceptor(o)
 		}
@@ -836,7 +852,7 @@ func (g *Node) Accept(acceptor common.MessageAcceptor, passThrough bool) (<-chan
 	return outCh, nil
 }
 
-func selectOnlyDiscoveryMessages(m interface{}) bool {
+func selectOnlyDiscoveryMessages(m any) bool {
 	msg, isGossipMsg := m.(protoext.ReceivedMessage)
 	if !isGossipMsg {
 		return false
@@ -1157,7 +1173,6 @@ func (g *Node) sameOrgOrOurOrgPullFilter(msg protoext.ReceivedMessage) func(stri
 
 func (g *Node) connect2BootstrapPeers() {
 	for _, endpoint := range g.conf.BootstrapPeers {
-		endpoint := endpoint
 		identifier := func() (*discovery.PeerIdentification, error) {
 			remotePeerIdentity, err := g.comm.Handshake(&comm.RemotePeer{Endpoint: endpoint})
 			if err != nil {
@@ -1332,7 +1347,7 @@ func extractChannels(a []*emittedGossipMessage) []common.ChannelID {
 		if len(m.Channel) == 0 {
 			continue
 		}
-		sameChan := func(a interface{}, b interface{}) bool {
+		sameChan := func(a any, b any) bool {
 			return bytes.Equal(a.(common.ChannelID), b.(common.ChannelID))
 		}
 		if util.IndexInSlice(channels, common.ChannelID(m.Channel), sameChan) == -1 {

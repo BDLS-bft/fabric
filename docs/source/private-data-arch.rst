@@ -166,7 +166,8 @@ Since implicit private data collections are not explicitly defined,
 it is not possible to set the additional collection properties. Specifically,
 ``memberOnlyRead`` and ``memberOnlyWrite`` are not available,
 meaning that access control for clients reading data from or writing data to
-an implicit private data collection must be encoded in the chaincode on the organization's peer.
+an implicit private data collection must be encoded in the `chaincode logic <chaincode4ade.html#chaincode-access-control>`_
+on the organization's peer.
 Furthermore, ``blockToLive`` is not available, meaning that private data is never automatically purged.
 
 The properties ``requiredPeerCount`` and ``maxPeerCount`` can however be set in the peer's core.yaml
@@ -325,8 +326,8 @@ configuration definitions and how to set them, refer back to the
 .. note:: If you would like more granular access control, you can set
           ``memberOnlyRead`` and ``memberOnlyWrite`` to false (implicit collections always
           behave as if ``memberOnlyRead`` and ``memberOnlyWrite`` are false). You can then apply your
-          own access control logic in chaincode, for example by calling the GetCreator()
-          chaincode API or using the client identity
+          own `access control logic in chaincode <chaincode4ade.html#chaincode-access-control>`_,
+          for example by calling the GetCreator() chaincode API or using the client identity
           `chaincode library <https://godoc.org/github.com/hyperledger/fabric-chaincode-go/shim#ChaincodeStub.GetCreator>`__ .
 
 Querying Private Data
@@ -372,7 +373,7 @@ applied to the channel’s state database to enable JSON content queries, by
 packaging indexes in a ``META-INF/statedb/couchdb/indexes`` directory at chaincode
 installation time.  Similarly, indexes can also be applied to private data
 collections that are explicitly defined, by packaging indexes in a ``META-INF/statedb/couchdb/collections/<collection_name>/indexes``
-directory. An example index is available `here <https://github.com/hyperledger/fabric-samples/blob/{BRANCH}/chaincode/marbles02_private/go/META-INF/statedb/couchdb/collections/collectionMarbles/indexes/indexOwner.json>`_.
+directory. An example index is available `here <https://github.com/hyperledger/fabric-samples/blob/main/asset-transfer-private-data/chaincode-go/META-INF/statedb/couchdb/collections/assetCollection/indexes/indexOwner.json>`_.
 
 Considerations when using private data
 --------------------------------------

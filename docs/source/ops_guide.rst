@@ -13,7 +13,6 @@ Operations Guides
    pluggable_endorsement_and_validation
    access_control.md
    idemix
-   idemixgen
    operations_service
    metrics_reference
    cc_launcher
@@ -23,5 +22,6 @@ Operations Guides
    enable_tls
    raft_configuration.md
    bft_configuration.md
-   kafka_raft_migration.md
-   kafka
+   bdls_configuration.md
+   bdls_performance.md
+   raft_bft_migration.md

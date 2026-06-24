@@ -10,12 +10,13 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/deliver"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/common/deliverclient/orderers"
 	commonledger "github.com/hyperledger/fabric/common/ledger"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/common/semaphore"
@@ -34,7 +35,6 @@ import (
 	"github.com/hyperledger/fabric/gossip/api"
 	gossipservice "github.com/hyperledger/fabric/gossip/service"
 	"github.com/hyperledger/fabric/internal/pkg/comm"
-	"github.com/hyperledger/fabric/internal/pkg/peer/orderers"
 	"github.com/hyperledger/fabric/msp"
 	mspmgmt "github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/protoutil"
@@ -288,28 +288,6 @@ func (p *Peer) createChannel(
 		mspmgmt.XXXSetMSPManager(cid, bundle.MSPManager())
 	}
 
-	osLogger := flogging.MustGetLogger("peer.orderers")
-	namedOSLogger := osLogger.With("channel", cid)
-	ordererSource := orderers.NewConnectionSource(namedOSLogger, p.OrdererEndpointOverrides)
-
-	ordererSourceCallback := func(bundle *channelconfig.Bundle) {
-		globalAddresses := bundle.ChannelConfig().OrdererAddresses()
-		orgAddresses := map[string]orderers.OrdererOrg{}
-		if ordererConfig, ok := bundle.OrdererConfig(); ok {
-			for orgName, org := range ordererConfig.Organizations() {
-				var certs [][]byte
-				certs = append(certs, org.MSP().GetTLSRootCerts()...)
-				certs = append(certs, org.MSP().GetTLSIntermediateCerts()...)
-
-				orgAddresses[orgName] = orderers.OrdererOrg{
-					Addresses: org.Endpoints(),
-					RootCerts: certs,
-				}
-			}
-		}
-		ordererSource.Update(globalAddresses, orgAddresses)
-	}
-
 	channel := &Channel{
 		ledger:         l,
 		resources:      bundle,
@@ -317,7 +295,6 @@ func (p *Peer) createChannel(
 	}
 
 	callbacks := []channelconfig.BundleActor{
-		ordererSourceCallback,
 		gossipCallbackWrapper,
 		trustedRootsCallbackWrapper,
 		mspCallback,
@@ -373,7 +350,7 @@ func (p *Peer) createChannel(
 
 	p.GossipService.InitializeChannel(
 		bundle.ConfigtxValidator().ChannelID(),
-		ordererSource,
+		p.OrdererEndpointOverrides,
 		store,
 		gossipservice.Support{
 			Validator:            validator,
@@ -470,8 +447,8 @@ func (p *Peer) GetPolicyManager(cid string) policies.Manager {
 	return nil
 }
 
-// JoinBySnaphotStatus queries ledger mgr to get the status of joinbysnapshot
-func (p *Peer) JoinBySnaphotStatus() *pb.JoinBySnapshotStatus {
+// JoinBySnapshotStatus queries ledger mgr to get the status of joinbysnapshot
+func (p *Peer) JoinBySnapshotStatus() *pb.JoinBySnapshotStatus {
 	return p.LedgerMgr.JoinBySnapshotStatus()
 }
 

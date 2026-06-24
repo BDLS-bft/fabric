@@ -12,11 +12,12 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/ledger/testutil"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestResetToGenesisBlkSingleBlkFile(t *testing.T) {
@@ -109,7 +110,8 @@ func TestResetBlockStore(t *testing.T) {
 	ledgerIDs := []string{"ledger1", "ledger2"}
 	h, err := LoadPreResetHeight(blockStoreRootDir, ledgerIDs)
 	require.NoError(t, err)
-	require.Equal(t,
+	require.Equal(
+		t,
 		map[string]uint64{
 			"ledger1": 20,
 			"ledger2": 40,
@@ -127,7 +129,8 @@ func TestResetBlockStore(t *testing.T) {
 	require.NoError(t, ClearPreResetHeight(blockStoreRootDir, ledgerIDs))
 	h, err = LoadPreResetHeight(blockStoreRootDir, ledgerIDs)
 	require.NoError(t, err)
-	require.Equal(t,
+	require.Equal(
+		t,
 		map[string]uint64{},
 		h,
 	)
@@ -137,7 +140,8 @@ func TestResetBlockStore(t *testing.T) {
 	ledgerIDs = []string{"ledger2"}
 	h, err = LoadPreResetHeight(blockStoreRootDir, ledgerIDs)
 	require.NoError(t, err)
-	require.Equal(t,
+	require.Equal(
+		t,
 		map[string]uint64{
 			"ledger2": 40,
 		},
@@ -147,7 +151,8 @@ func TestResetBlockStore(t *testing.T) {
 	// verify that ledger1 has preResetHeight file is not deleted
 	h, err = LoadPreResetHeight(blockStoreRootDir, []string{"ledger1", "ledger2"})
 	require.NoError(t, err)
-	require.Equal(t,
+	require.Equal(
+		t,
 		map[string]uint64{
 			"ledger1": 20,
 		},
@@ -218,13 +223,16 @@ func assertBlocksDirOnlyFileWithGenesisBlock(t *testing.T, ledgerDir string, gen
 func assertBlockStorePostReset(t *testing.T, store *BlockStore, originallyCommittedBlocks []*common.Block) {
 	bcInfo, _ := store.GetBlockchainInfo()
 	t.Logf("bcInfo = %s", spew.Sdump(bcInfo))
-	require.Equal(t,
-		&common.BlockchainInfo{
-			Height:            1,
-			CurrentBlockHash:  protoutil.BlockHeaderHash(originallyCommittedBlocks[0].Header),
-			PreviousBlockHash: nil,
-		},
-		bcInfo)
+	require.True(
+		t, proto.Equal(
+			&common.BlockchainInfo{
+				Height:            1,
+				CurrentBlockHash:  protoutil.BlockHeaderHash(originallyCommittedBlocks[0].Header),
+				PreviousBlockHash: nil,
+			},
+			bcInfo,
+		),
+	)
 
 	blk, err := store.RetrieveBlockByNumber(0)
 	require.NoError(t, err)
@@ -240,7 +248,7 @@ func assertBlockStorePostReset(t *testing.T, store *BlockStore, originallyCommit
 		require.NoError(t, store.AddBlock(b))
 	}
 
-	for i := 0; i < len(originallyCommittedBlocks); i++ {
+	for i := range originallyCommittedBlocks {
 		blk, err := store.RetrieveBlockByNumber(uint64(i))
 		require.NoError(t, err)
 		require.Equal(t, originallyCommittedBlocks[i], blk)
@@ -256,10 +264,9 @@ func assertRecordedHeight(t *testing.T, ledgerDir, expectedRecordedHt string) {
 func testutilEstimateTotalSizeOnDisk(t *testing.T, blocks []*common.Block) int {
 	size := 0
 	for _, block := range blocks {
-		by, _, err := serializeBlock(block)
-		require.NoError(t, err)
+		by, _ := serializeBlock(block)
 		blockBytesSize := len(by)
-		encodedLen := proto.EncodeVarint(uint64(blockBytesSize))
+		encodedLen := protowire.AppendVarint(nil, uint64(blockBytesSize))
 		size += blockBytesSize + len(encodedLen)
 	}
 	return size

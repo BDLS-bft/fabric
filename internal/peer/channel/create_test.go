@@ -18,9 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/orderer"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/core/config/configtest"
 	"github.com/hyperledger/fabric/internal/peer/common"
 	"github.com/hyperledger/fabric/internal/peer/common/mock"
@@ -30,6 +29,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:generate counterfeiter -o mock/signer_serializer.go --fake-name SignerSerializer . signerSerializer
@@ -664,7 +664,8 @@ func TestSanityCheckAndSignChannelCreateTx(t *testing.T) {
 		nil,
 		&cb.ConfigEnvelope{},
 		0,
-		0)
+		0,
+	)
 	require.NoError(t, err)
 	_, err = sanityCheckAndSignConfigTx(env, signer)
 	require.EqualError(t, err, "bad signer header")
@@ -678,7 +679,8 @@ func TestSanityCheckAndSignChannelCreateTx(t *testing.T) {
 		nil,
 		&cb.ConfigEnvelope{},
 		0,
-		0)
+		0,
+	)
 	require.NoError(t, err)
 	_, err = sanityCheckAndSignConfigTx(env, signer)
 	require.EqualError(t, err, "signer failed to sign")

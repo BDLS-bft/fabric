@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	protosgossip "github.com/hyperledger/fabric-protos-go/gossip"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	protosgossip "github.com/hyperledger/fabric-protos-go-apiv2/gossip"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/core/committer"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/gossip/metrics"
@@ -81,7 +81,8 @@ func (*NoOpReconciler) Stop() {
 
 // NewReconciler creates a new instance of reconciler
 func NewReconciler(channel string, metrics *metrics.PrivdataMetrics, c committer.Committer,
-	fetcher ReconciliationFetcher, config *PrivdataConfig) *Reconciler {
+	fetcher ReconciliationFetcher, config *PrivdataConfig,
+) *Reconciler {
 	reconcilerLogger := logger.With("channel", channel)
 	reconcilerLogger.Debug("Private data reconciliation is enabled")
 	return &Reconciler{

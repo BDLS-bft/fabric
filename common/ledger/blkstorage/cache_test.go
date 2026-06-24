@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -119,7 +119,7 @@ func TestTooBigEntryEvictsSmallerEntries(t *testing.T) {
 func TestCacheEviction(t *testing.T) {
 	c := newCache(10)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		block := &common.Block{
 			Header: &common.BlockHeader{Number: uint64(i)},
 		}

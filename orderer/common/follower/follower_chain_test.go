@@ -12,11 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/bccsp"
-	"github.com/hyperledger/fabric/bccsp/sw"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/orderer/common/follower"
 	"github.com/hyperledger/fabric/orderer/common/follower/mocks"
 	"github.com/hyperledger/fabric/orderer/common/types"
@@ -24,6 +23,7 @@ import (
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:generate counterfeiter -o mocks/cluster_consenter.go -fake-name ClusterConsenter . clusterConsenter
@@ -195,7 +195,10 @@ func TestFollowerPullUpToJoin(t *testing.T) {
 
 		wgChain = sync.WaitGroup{}
 		wgChain.Add(1)
-		mockChainCreator.SwitchFollowerToChainCalls(func(_ string) { wgChain.Done() })
+		mockChainCreator.SwitchFollowerToChainCalls(func(_ string) bool {
+			wgChain.Done()
+			return true
+		})
 
 		wgChain = sync.WaitGroup{}
 		wgChain.Add(1)
@@ -371,7 +374,7 @@ func TestFollowerPullUpToJoin(t *testing.T) {
 
 		require.Equal(t, 10, ledgerResources.AppendCallCount())
 		require.Equal(t, uint64(10), ledgerResources.Height())
-		for i := uint64(0); i < joinNum; i++ {
+		for i := range joinNum {
 			require.Equal(t, remoteBlockchain.Block(i).Header, localBlockchain.Block(i).Header, "failed block i=%d", i)
 		}
 		require.Equal(t, 0, mockChainCreator.SwitchFollowerToChainCallCount())
@@ -391,11 +394,11 @@ func TestFollowerPullAfterJoin(t *testing.T) {
 
 		puller.PullBlockCalls(func(i uint64) *common.Block { return remoteBlockchain.Block(i) })
 		puller.HeightsByEndpointsCalls(
-			func() (map[string]uint64, error) {
+			func() (map[string]uint64, string, error) {
 				m := make(map[string]uint64)
 				m["good-node"] = remoteBlockchain.Height()
 				m["lazy-node"] = remoteBlockchain.Height() - 2
-				return m, nil
+				return m, "", nil
 			},
 		)
 		pullerFactory.BlockPullerReturns(puller, nil)
@@ -486,7 +489,7 @@ func TestFollowerPullAfterJoin(t *testing.T) {
 
 		var hCount int
 		puller.HeightsByEndpointsCalls(
-			func() (map[string]uint64, error) {
+			func() (map[string]uint64, string, error) {
 				m := make(map[string]uint64)
 				if hCount%10 == 0 {
 					m["good-node"] = remoteBlockchain.Height()
@@ -495,7 +498,7 @@ func TestFollowerPullAfterJoin(t *testing.T) {
 					m["equal-to-local-node"] = localBlockchain.Height()
 				}
 				hCount++
-				return m, nil
+				return m, "", nil
 			},
 		)
 		ledgerResources.AppendCalls(func(block *common.Block) error {
@@ -559,7 +562,10 @@ func TestFollowerPullAfterJoin(t *testing.T) {
 			}
 			return nil
 		})
-		mockChainCreator.SwitchFollowerToChainCalls(func(_ string) { wgChain.Done() }) // Stop when a new chain is created
+		mockChainCreator.SwitchFollowerToChainCalls(func(_ string) bool {
+			wgChain.Done()
+			return true
+		}) // Stop when a new chain is created
 		require.Equal(t, joinNum+1, localBlockchain.Height())
 
 		chain, err := follower.NewChain(ledgerResources, mockClusterConsenter, nil, options, pullerFactory, mockChainCreator, cryptoProvider, mockChannelParticipationMetricsReporter)
@@ -604,7 +610,10 @@ func TestFollowerPullAfterJoin(t *testing.T) {
 			}
 			return nil
 		})
-		mockChainCreator.SwitchFollowerToChainCalls(func(_ string) { wgChain.Done() }) // Stop when a new chain is created
+		mockChainCreator.SwitchFollowerToChainCalls(func(_ string) bool {
+			wgChain.Done()
+			return true
+		}) // Stop when a new chain is created
 		require.Equal(t, joinNum+1, localBlockchain.Height())
 
 		failPull := 10
@@ -619,16 +628,16 @@ func TestFollowerPullAfterJoin(t *testing.T) {
 
 		failHeight := 1
 		puller.HeightsByEndpointsCalls(
-			func() (map[string]uint64, error) {
+			func() (map[string]uint64, string, error) {
 				if failHeight > 0 {
 					failHeight = failHeight - 1
-					return nil, errors.New("failed to get heights")
+					return nil, "", errors.New("failed to get heights")
 				}
 				failHeight = 1
 				m := make(map[string]uint64)
 				m["good-node"] = remoteBlockchain.Height()
 				m["lazy-node"] = remoteBlockchain.Height() - 2
-				return m, nil
+				return m, "", nil
 			},
 		)
 		pullerFactory.BlockPullerReturns(puller, nil)
@@ -682,11 +691,11 @@ func TestFollowerPullPastJoin(t *testing.T) {
 
 		puller.PullBlockCalls(func(i uint64) *common.Block { return remoteBlockchain.Block(i) })
 		puller.HeightsByEndpointsCalls(
-			func() (map[string]uint64, error) {
+			func() (map[string]uint64, string, error) {
 				m := make(map[string]uint64)
 				m["good-node"] = remoteBlockchain.Height()
 				m["lazy-node"] = remoteBlockchain.Height() - 2
-				return m, nil
+				return m, "", nil
 			},
 		)
 		pullerFactory.BlockPullerReturns(puller, nil)
@@ -774,7 +783,7 @@ func TestFollowerPullPastJoin(t *testing.T) {
 	})
 	t.Run("Configs in the middle, latest height increasing", func(t *testing.T) {
 		setup()
-		for i := uint64(0); i < 6; i++ {
+		for i := range uint64(6) {
 			localBlockchain.Append(remoteBlockchain.Block(i))
 		}
 
@@ -794,7 +803,10 @@ func TestFollowerPullPastJoin(t *testing.T) {
 			}
 			return nil
 		})
-		mockChainCreator.SwitchFollowerToChainCalls(func(_ string) { wgChain.Done() }) // Stop when a new chain is created
+		mockChainCreator.SwitchFollowerToChainCalls(func(_ string) bool {
+			wgChain.Done()
+			return true
+		}) // Stop when a new chain is created
 		require.Equal(t, uint64(6), localBlockchain.Height())
 
 		chain, err := follower.NewChain(ledgerResources, mockClusterConsenter, joinBlockAppRaft, options, pullerFactory, mockChainCreator, cryptoProvider, mockChannelParticipationMetricsReporter)
@@ -839,7 +851,10 @@ func TestFollowerPullPastJoin(t *testing.T) {
 			}
 			return nil
 		})
-		mockChainCreator.SwitchFollowerToChainCalls(func(_ string) { wgChain.Done() }) // Stop when a new chain is created
+		mockChainCreator.SwitchFollowerToChainCalls(func(_ string) bool {
+			wgChain.Done()
+			return true
+		}) // Stop when a new chain is created
 		require.Equal(t, uint64(0), localBlockchain.Height())
 
 		failPull := 10
@@ -854,16 +869,16 @@ func TestFollowerPullPastJoin(t *testing.T) {
 
 		failHeight := 1
 		puller.HeightsByEndpointsCalls(
-			func() (map[string]uint64, error) {
+			func() (map[string]uint64, string, error) {
 				if failHeight > 0 {
 					failHeight = failHeight - 1
-					return nil, errors.New("failed to get heights")
+					return nil, "", errors.New("failed to get heights")
 				}
 				failHeight = 1
 				m := make(map[string]uint64)
 				m["good-node"] = remoteBlockchain.Height()
 				m["lazy-node"] = remoteBlockchain.Height() - 2
-				return m, nil
+				return m, "", nil
 			},
 		)
 		pullerFactory.BlockPullerReturns(puller, nil)
@@ -935,7 +950,7 @@ func (mbc *memoryBlockChain) fill(numBlocks uint64) {
 	defer mbc.lock.Unlock()
 
 	height := uint64(len(mbc.chain))
-	prevHash := []byte{}
+	var prevHash []byte
 
 	for i := height; i < height+numBlocks; i++ {
 		if i > 0 {
@@ -988,13 +1003,14 @@ func amIReallyInChannel(configBlock *common.Block) (bool, error) {
 func makeConfigBlock(num uint64, prevHash []byte, isMember uint8) *common.Block {
 	block := protoutil.NewBlock(num, prevHash)
 	env := &common.Envelope{
-		Payload: protoutil.MarshalOrPanic(&common.Payload{
-			Header: protoutil.MakePayloadHeader(
-				protoutil.MakeChannelHeader(common.HeaderType_CONFIG, 0, "my-channel", 0),
-				protoutil.MakeSignatureHeader([]byte{}, []byte{}),
-			),
-			Data: []byte{isMember},
-		},
+		Payload: protoutil.MarshalOrPanic(
+			&common.Payload{
+				Header: protoutil.MakePayloadHeader(
+					protoutil.MakeChannelHeader(common.HeaderType_CONFIG, 0, "my-channel", 0),
+					protoutil.MakeSignatureHeader([]byte{}, []byte{}),
+				),
+				Data: []byte{isMember},
+			},
 		),
 	}
 	block.Data.Data = append(block.Data.Data, protoutil.MarshalOrPanic(env))

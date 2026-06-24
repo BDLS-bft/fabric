@@ -10,11 +10,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset/kvrwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/capabilities"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	commonerrors "github.com/hyperledger/fabric/common/errors"
@@ -34,6 +33,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:generate counterfeiter -o mocks/state.go -fake-name State . vsState
@@ -1542,7 +1542,8 @@ func validateUpgradeWithNewFailAllIP(t *testing.T, v11capability, expecterr bool
 	// now we upgrade, with v 2 of the same cc, with the crucial difference that it has a reject all IP
 	ccver = ccver + ".2"
 
-	simresres, err := createCCDataRWset(ccname, ccname, ccver,
+	simresres, err := createCCDataRWset(
+		ccname, ccname, ccver,
 		policydsl.MarshaledRejectAllPolicy, // here's where we specify the IP of the upgraded cc
 	)
 	require.NoError(t, err)

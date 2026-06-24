@@ -11,10 +11,10 @@ import (
 	"crypto/sha256"
 	b64 "encoding/base64"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 // GetPayloads gets the underlying payload objects in a TransactionAction
@@ -94,6 +94,9 @@ func CreateSignedEnvelopeWithTLSBinding(
 		}
 	}
 
+	if !dataMsg.ProtoReflect().IsValid() {
+		return nil, errors.New("error marshaling: proto: Marshal called with nil")
+	}
 	data, err := proto.Marshal(dataMsg)
 	if err != nil {
 		return nil, errors.Wrap(err, "error marshaling")
@@ -382,11 +385,15 @@ func MockSignedEndorserProposalOrPanic(
 		common.HeaderType_ENDORSER_TRANSACTION,
 		channelID,
 		&peer.ChaincodeInvocationSpec{ChaincodeSpec: cs},
-		creator)
+		creator,
+	)
 	if err != nil {
 		panic(err)
 	}
 
+	if prop == nil {
+		panic(errors.New("proto: Marshal called with nil"))
+	}
 	propBytes, err := proto.Marshal(prop)
 	if err != nil {
 		panic(err)
@@ -409,7 +416,8 @@ func MockSignedEndorserProposal2OrPanic(
 		common.HeaderType_ENDORSER_TRANSACTION,
 		channelID,
 		&peer.ChaincodeInvocationSpec{ChaincodeSpec: &peer.ChaincodeSpec{}},
-		serializedSigner)
+		serializedSigner,
+	)
 	if err != nil {
 		panic(err)
 	}

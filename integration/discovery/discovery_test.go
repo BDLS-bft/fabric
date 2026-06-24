@@ -14,29 +14,29 @@ import (
 	"syscall"
 	"time"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/discovery"
-	pm "github.com/hyperledger/fabric-protos-go/msp"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/discovery"
+	pm "github.com/hyperledger/fabric-protos-go-apiv2/msp"
 	"github.com/hyperledger/fabric/common/policydsl"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
+	. "github.com/hyperledger/fabric/internal/test"
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/protoutil"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
 	"github.com/onsi/gomega/gexec"
 	"github.com/tedsuo/ifrit"
 	ginkgomon "github.com/tedsuo/ifrit/ginkgomon_v2"
+	"google.golang.org/protobuf/proto"
 )
 
 var _ = Describe("DiscoveryService", func() {
 	var (
 		testDir        string
-		client         *docker.Client
+		client         dcli.APIClient
 		config         *nwo.Config
 		network        *nwo.Network
 		ordererRunner  *ginkgomon.Runner
@@ -53,7 +53,7 @@ var _ = Describe("DiscoveryService", func() {
 		testDir, err = os.MkdirTemp("", "e2e-sd")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		config = nwo.BasicEtcdRaft()
@@ -99,7 +99,7 @@ var _ = Describe("DiscoveryService", func() {
 			peerProcesses = append(peerProcesses, peerProcess)
 
 			orderer = network.Orderer("orderer")
-			channelparticipation.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
+			nwo.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
 
 			org1Peer0 = network.Peer("Org1", "peer0")
 			org2Peer0 = network.Peer("Org2", "peer0")
@@ -193,7 +193,8 @@ var _ = Describe("DiscoveryService", func() {
 				CA:            &nwo.CA{Hostname: "ca"},
 			})
 			config.Profiles[0].Organizations = append(config.Profiles[0].Organizations, "Org3")
-			config.Peers = append(config.Peers,
+			config.Peers = append(
+				config.Peers,
 				&nwo.Peer{
 					Name:         "peer0",
 					Organization: "Org3",
@@ -225,7 +226,7 @@ var _ = Describe("DiscoveryService", func() {
 			peerProcesses = append(peerProcesses, peerProcess)
 
 			orderer = network.Orderer("orderer")
-			channelparticipation.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
+			nwo.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
 
 			org1Peer0 = network.Peer("Org1", "peer0")
 			org2Peer0 = network.Peer("Org2", "peer0")
@@ -273,7 +274,7 @@ var _ = Describe("DiscoveryService", func() {
 			discoveredConfig2 := discoverConfiguration(network, org3Peer0)
 
 			By("comparing configuration from org1Peer0 and org3Peer0")
-			Expect(proto.Equal(discoveredConfig, discoveredConfig2)).To(BeTrue())
+			Expect(discoveredConfig).To(ProtoEqual(discoveredConfig2))
 
 			By("validating the membership data")
 			Expect(discoveredConfig.Msps).To(HaveLen(len(network.Organizations)))
@@ -281,22 +282,29 @@ var _ = Describe("DiscoveryService", func() {
 				org := network.Organization(o.Organization)
 				mspConfig, err := msp.GetVerifyingMspConfig(network.OrdererOrgMSPDir(org), org.MSPID, "bccsp")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(discoveredConfig.Msps[org.MSPID]).To(Equal(unmarshalFabricMSPConfig(mspConfig)))
+				Expect(discoveredConfig.Msps[org.MSPID]).To(ProtoEqual(unmarshalFabricMSPConfig(mspConfig)))
 			}
 			for _, p := range network.Peers {
 				org := network.Organization(p.Organization)
 				mspConfig, err := msp.GetVerifyingMspConfig(network.PeerOrgMSPDir(org), org.MSPID, "bccsp")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(discoveredConfig.Msps[org.MSPID]).To(Equal(unmarshalFabricMSPConfig(mspConfig)))
+				Expect(discoveredConfig.Msps[org.MSPID]).To(ProtoEqual(unmarshalFabricMSPConfig(mspConfig)))
 			}
 
 			By("validating the orderers")
 			Expect(discoveredConfig.Orderers).To(HaveLen(len(network.Orderers)))
+		external:
 			for _, orderer := range network.Orderers {
 				ordererMSPID := network.Organization(orderer.Organization).MSPID
-				Expect(discoveredConfig.Orderers[ordererMSPID].Endpoint).To(ConsistOf(
-					&discovery.Endpoint{Host: "127.0.0.1", Port: uint32(network.OrdererPort(orderer, nwo.ListenPort))},
-				))
+				for _, endpoint := range discoveredConfig.Orderers[ordererMSPID].Endpoint {
+					if proto.Equal(
+						endpoint,
+						&discovery.Endpoint{Host: "127.0.0.1", Port: uint32(network.OrdererPort(orderer, nwo.ListenPort))},
+					) {
+						continue external
+					}
+				}
+				Fail("no match orderer host")
 			}
 
 			//
@@ -347,7 +355,7 @@ var _ = Describe("DiscoveryService", func() {
 			sess, err := network.Discover(endorsers)
 			Expect(err).NotTo(HaveOccurred())
 			Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(1))
-			Expect(sess.Err).To(gbytes.Say(`failed constructing descriptor for chaincodes:<name:"mycc-lifecycle"`))
+			Expect(sess.Err).To(gbytes.Say(`failed constructing descriptor for chaincodes:{name:"mycc-lifecycle"`))
 
 			By("deploying chaincode using org1 and org2")
 			chaincodePath := components.Build("github.com/hyperledger/fabric/integration/chaincode/simple/cmd")
@@ -475,7 +483,7 @@ var _ = Describe("DiscoveryService", func() {
 			currentConfig := nwo.GetConfig(network, org3Peer0, orderer, "testchannel")
 			updatedConfig := proto.Clone(currentConfig).(*common.Config)
 			updatedConfig.ChannelGroup.Groups["Application"].Groups["Org3"].Policies["Writers"].Policy.Value = protoutil.MarshalOrPanic(policydsl.SignedByMspAdmin("Org3MSP"))
-			nwo.UpdateConfig(network, orderer, "testchannel", currentConfig, updatedConfig, true, org3Peer0)
+			nwo.UpdateConfig(network, orderer, "testchannel", currentConfig, updatedConfig, true, org3Peer0, nil)
 
 			By("trying to discover endorsers as an org3 admin")
 			endorsers = commands.Endorsers{
