@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package agent
 
 import (
@@ -17,7 +19,7 @@ import (
 	"github.com/BDLS-bft/bdls"
 	"github.com/BDLS-bft/bdls/crypto/blake2b"
 
-	proto "github.com/gogo/protobuf/proto"
+	proto "github.com/golang/protobuf/proto"
 )
 
 const (
