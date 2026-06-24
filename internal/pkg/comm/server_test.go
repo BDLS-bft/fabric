@@ -17,6 +17,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -406,6 +407,7 @@ func TestNewGRPCServerInvalidParameters(t *testing.T) {
 		"listen tcp: unknown port tcp/1BBB",
 		"listen tcp: address tcp/1BBB: unknown port",
 		"listen tcp: lookup tcp/1BBB: Servname not supported for ai_socktype",
+		"listen tcp: lookup tcp/1BBB: unknown port",
 	}
 	require.Error(t, err, fmt.Sprintf("[%s], [%s] [%s] or [%s] expected", msgs[0], msgs[1], msgs[2], msgs[3]))
 	require.Contains(t, msgs, err.Error())
@@ -580,14 +582,15 @@ func TestNewSecureGRPCServer(t *testing.T) {
 	require.NoError(t, err, "failed to create listener")
 	testAddress := lis.Addr().String()
 
-	srv, err := comm.NewGRPCServerFromListener(lis, comm.ServerConfig{
-		ConnectionTimeout: 250 * time.Millisecond,
-		SecOpts: comm.SecureOptions{
-			UseTLS:      true,
-			Certificate: []byte(selfSignedCertPEM),
-			Key:         []byte(selfSignedKeyPEM),
+	srv, err := comm.NewGRPCServerFromListener(
+		lis, comm.ServerConfig{
+			ConnectionTimeout: 250 * time.Millisecond,
+			SecOpts: comm.SecureOptions{
+				UseTLS:      true,
+				Certificate: []byte(selfSignedCertPEM),
+				Key:         []byte(selfSignedKeyPEM),
+			},
 		},
-	},
 	)
 	require.NoError(t, err, "failed to create new grpc server")
 
@@ -629,8 +632,6 @@ func TestNewSecureGRPCServer(t *testing.T) {
 		"TLS13": tls.VersionTLS13,
 	}
 	for name, tlsVersion := range tlsVersions {
-		tlsVersion := tlsVersion
-
 		t.Run(name, func(t *testing.T) {
 			creds := credentials.NewTLS(&tls.Config{RootCAs: certPool, MinVersion: tlsVersion, MaxVersion: tlsVersion})
 			_, err := invokeEmptyCall(testAddress, grpc.WithTransportCredentials(creds), grpc.WithBlock())
@@ -645,7 +646,6 @@ func TestNewSecureGRPCServer(t *testing.T) {
 		"TLS11": tls.VersionTLS11,
 	}
 	for name, tlsVersion := range tlsVersions {
-		tlsVersion := tlsVersion
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -723,7 +723,7 @@ func TestVerifyCertificateCallback(t *testing.T) {
 	})
 }
 
-// prior tests used self-signed certficates loaded by the GRPCServer and the test client
+// prior tests used self-signed certificates loaded by the GRPCServer and the test client
 // here we'll use certificates signed by certificate authorities
 func TestWithSignedRootCertificates(t *testing.T) {
 	t.Parallel()
@@ -858,7 +858,7 @@ func TestWithSignedIntermediateCertificates(t *testing.T) {
 // utility function for testing client / server communication using TLS
 func runMutualAuth(t *testing.T, servers []testServer, trustedClients, unTrustedClients []*tls.Config) error {
 	// loop through all the test servers
-	for i := 0; i < len(servers); i++ {
+	for i := range servers {
 		// create listener
 		lis, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
@@ -884,7 +884,7 @@ func runMutualAuth(t *testing.T, servers []testServer, trustedClients, unTrusted
 		time.Sleep(10 * time.Millisecond)
 
 		// loop through all the trusted clients
-		for j := 0; j < len(trustedClients); j++ {
+		for j := range trustedClients {
 			// invoke the EmptyCall service
 			_, err = invokeEmptyCall(srvAddr, grpc.WithTransportCredentials(credentials.NewTLS(trustedClients[j])))
 			// we expect success from trusted clients
@@ -896,7 +896,7 @@ func runMutualAuth(t *testing.T, servers []testServer, trustedClients, unTrusted
 		}
 
 		// loop through all the untrusted clients
-		for k := 0; k < len(unTrustedClients); k++ {
+		for k := range unTrustedClients {
 			// invoke the EmptyCall service
 			_, err = invokeEmptyCall(
 				srvAddr,
@@ -937,7 +937,8 @@ func TestMutualAuth(t *testing.T) {
 		},
 		{
 			name: "ClientAuthRequiredWithMultipleChildClientOrgs",
-			servers: testOrgs[0].testServers(append([][]byte{},
+			servers: testOrgs[0].testServers(append(
+				[][]byte{},
 				testOrgs[0].childOrgs[0].rootCA,
 				testOrgs[0].childOrgs[1].rootCA,
 			)),
@@ -961,7 +962,6 @@ func TestMutualAuth(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("Running test %s ...", test.name)
@@ -1142,12 +1142,7 @@ func TestCipherSuites(t *testing.T) {
 	}
 
 	fabricDefaultCipherSuite := func(cipher uint16) bool {
-		for _, defaultCipher := range comm.DefaultTLSCipherSuites {
-			if cipher == defaultCipher {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(comm.DefaultTLSCipherSuites, cipher)
 	}
 
 	var otherCipherSuites []uint16
@@ -1195,7 +1190,6 @@ func TestCipherSuites(t *testing.T) {
 	go srv.Start()
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1226,19 +1220,19 @@ func TestServerInterceptors(t *testing.T) {
 	// set up interceptors
 	usiCount := uint32(0)
 	ssiCount := uint32(0)
-	usi1 := func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+	usi1 := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 		atomic.AddUint32(&usiCount, 1)
 		return handler(ctx, req)
 	}
-	usi2 := func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+	usi2 := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 		atomic.AddUint32(&usiCount, 1)
 		return nil, status.Error(codes.Aborted, msg)
 	}
-	ssi1 := func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	ssi1 := func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		atomic.AddUint32(&ssiCount, 1)
 		return handler(srv, ss)
 	}
-	ssi2 := func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	ssi2 := func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		atomic.AddUint32(&ssiCount, 1)
 		return status.Error(codes.Aborted, msg)
 	}

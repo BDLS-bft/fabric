@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	gossip2 "github.com/hyperledger/fabric-protos-go/gossip"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	gossip2 "github.com/hyperledger/fabric-protos-go-apiv2/gossip"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	util2 "github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/gossip/metrics"
@@ -200,7 +200,8 @@ func TestReconciliationHappyPathWithoutScheduler(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, commitPvtDataOfOldBlocksHappened)
 
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", "mychannel"},
 		testMetricProvider.FakeReconciliationDuration.WithArgsForCall(0),
 	)
@@ -289,7 +290,8 @@ func TestReconciliationHappyPathWithScheduler(t *testing.T) {
 			ReconcileSleepInterval: time.Millisecond * 100,
 			ReconcileBatchSize:     1,
 			ReconciliationEnabled:  true,
-		})
+		},
+	)
 	r.Start()
 	wg.Wait()
 	r.Stop()
@@ -409,7 +411,8 @@ func TestReconciliationPullingMissingPrivateDataAtOnePass(t *testing.T) {
 			ReconcileSleepInterval: time.Millisecond * 100,
 			ReconcileBatchSize:     1,
 			ReconciliationEnabled:  true,
-		})
+		},
+	)
 	r.Start()
 	<-stopC
 	r.Stop()
@@ -516,7 +519,8 @@ func TestFailuresWhileReconcilingMissingPvtData(t *testing.T) {
 			ReconcileSleepInterval: time.Millisecond * 100,
 			ReconcileBatchSize:     1,
 			ReconciliationEnabled:  true,
-		})
+		},
+	)
 	err := r.reconcile()
 	require.Error(t, err)
 	require.Contains(t, "failed to obtain missing pvt data tracker", err.Error())

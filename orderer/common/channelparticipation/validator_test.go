@@ -11,12 +11,12 @@ import (
 	"math"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/orderer/common/channelparticipation"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestValidateJoinBlock(t *testing.T) {
@@ -122,6 +122,102 @@ func TestValidateJoinBlock(t *testing.T) {
 	}
 }
 
+func TestValidateUpdateEnvelope(t *testing.T) {
+	validUpdateEnvelope := configUpdateEnvelopeWithGroups("my-channel")
+
+	tests := []struct {
+		testName            string
+		updateEnvelopeBlock *cb.Envelope
+		expectedChannelID   string
+		expectedErr         error
+	}{
+		{
+			testName:            "Valid application channel update envelope",
+			updateEnvelopeBlock: validUpdateEnvelope,
+			expectedChannelID:   "my-channel",
+			expectedErr:         nil,
+		},
+		{
+			testName:            "Update envelope not a config",
+			updateEnvelopeBlock: nonConfigEnvelope(),
+			expectedChannelID:   "",
+			expectedErr:         errors.New("bad type"),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.testName, func(t *testing.T) {
+			channelID, err := channelparticipation.ValidateUpdateConfigEnvelope(test.updateEnvelopeBlock)
+			require.Equal(t, test.expectedChannelID, channelID)
+			if test.expectedErr != nil {
+				require.EqualError(t, err, test.expectedErr.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateFetchBlockID(t *testing.T) {
+	tests := []struct {
+		testName    string
+		blockID     string
+		expectedErr error
+	}{
+		{
+			testName:    "block ID is empty",
+			blockID:     "",
+			expectedErr: errors.New("block ID illegal, cannot be empty"),
+		},
+		{
+			testName:    "block ID is oldest",
+			blockID:     "oldest",
+			expectedErr: nil,
+		},
+		{
+			testName:    "block ID is newest",
+			blockID:     "newest",
+			expectedErr: nil,
+		},
+		{
+			testName:    "block ID is config",
+			blockID:     "config",
+			expectedErr: nil,
+		},
+		{
+			testName:    "block ID is 0",
+			blockID:     "0",
+			expectedErr: nil,
+		},
+		{
+			testName:    "block ID is 99",
+			blockID:     "99",
+			expectedErr: nil,
+		},
+		{
+			testName:    "block ID is blabla",
+			blockID:     "blabla",
+			expectedErr: errors.New("'blabla' not equal <newest|oldest|config|(number)>"),
+		},
+		{
+			testName:    "block ID is 1n0",
+			blockID:     "1n0",
+			expectedErr: errors.New("'1n0' not equal <newest|oldest|config|(number)>"),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.testName, func(t *testing.T) {
+			err := channelparticipation.ValidateFetchBlockID(test.blockID)
+			if test.expectedErr != nil {
+				require.EqualError(t, err, test.expectedErr.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func blockWithGroups(groups map[string]*cb.ConfigGroup, channelID string) *cb.Block {
 	block := protoutil.NewBlock(0, []byte{})
 	block.Data = &cb.BlockData{
@@ -187,4 +283,18 @@ func nonConfigBlock() *cb.Block {
 	protoutil.InitBlockMetadata(block)
 
 	return block
+}
+
+func nonConfigEnvelope() *cb.Envelope {
+	data := &cb.Envelope{
+		Payload: protoutil.MarshalOrPanic(&cb.Payload{
+			Header: &cb.Header{
+				ChannelHeader: protoutil.MarshalOrPanic(&cb.ChannelHeader{
+					Type: int32(cb.HeaderType_ENDORSER_TRANSACTION),
+				}),
+			},
+		}),
+	}
+
+	return data
 }

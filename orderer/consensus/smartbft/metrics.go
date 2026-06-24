@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 package smartbft
 
-import "github.com/hyperledger/fabric/common/metrics"
+import "github.com/hyperledger/fabric-lib-go/common/metrics"
 
 var (
 	clusterSizeOpts = metrics.GaugeOpts{
@@ -41,22 +41,32 @@ var (
 		LabelNames:   []string{"channel"},
 		StatsdFormat: "%{#fqname}.%{channel}",
 	}
+	proposalFinalityDurationOpts = metrics.HistogramOpts{
+		Namespace:    "consensus",
+		Subsystem:    "BFT",
+		Name:         "proposal_finality_duration",
+		Help:         "Leader-local time from assembling a SmartBFT proposal to delivering the matching decision.",
+		LabelNames:   []string{"channel"},
+		StatsdFormat: "%{#fqname}.%{channel}",
+	}
 )
 
 // Metrics defines the metrics for the cluster.
 type Metrics struct {
-	ClusterSize          metrics.Gauge
-	CommittedBlockNumber metrics.Gauge
-	IsLeader             metrics.Gauge
-	LeaderID             metrics.Gauge
+	ClusterSize              metrics.Gauge
+	CommittedBlockNumber     metrics.Gauge
+	IsLeader                 metrics.Gauge
+	LeaderID                 metrics.Gauge
+	ProposalFinalityDuration metrics.Histogram
 }
 
 // NewMetrics creates the Metrics
 func NewMetrics(p metrics.Provider) *Metrics {
 	return &Metrics{
-		ClusterSize:          p.NewGauge(clusterSizeOpts),
-		CommittedBlockNumber: p.NewGauge(committedBlockNumberOpts),
-		IsLeader:             p.NewGauge(isLeaderOpts),
-		LeaderID:             p.NewGauge(leaderIDOpts),
+		ClusterSize:              p.NewGauge(clusterSizeOpts),
+		CommittedBlockNumber:     p.NewGauge(committedBlockNumberOpts),
+		IsLeader:                 p.NewGauge(isLeaderOpts),
+		LeaderID:                 p.NewGauge(leaderIDOpts),
+		ProposalFinalityDuration: p.NewHistogram(proposalFinalityDurationOpts),
 	}
 }

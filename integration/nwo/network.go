@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -25,14 +26,13 @@ import (
 	"text/template"
 	"time"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	"github.com/hyperledger/fabric/integration/nwo/fabricconfig"
 	"github.com/hyperledger/fabric/integration/nwo/runner"
 	"github.com/hyperledger/fabric/protoutil"
+	dcli "github.com/moby/moby/client"
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -42,9 +42,10 @@ import (
 	"github.com/tedsuo/ifrit"
 	ginkgomon "github.com/tedsuo/ifrit/ginkgomon_v2"
 	"github.com/tedsuo/ifrit/grouper"
+	"go.yaml.in/yaml/v4"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"gopkg.in/yaml.v2"
+	"google.golang.org/protobuf/proto"
 )
 
 // Blocks defines block cutting config.
@@ -57,8 +58,28 @@ type Blocks struct {
 
 // SmartBFT defines the configuration of smartBFT options.
 type SmartBFT struct {
-	LeaderHeartbeatTimeout int `yaml:"leader_heartbeat_timeout,omitempty"`
-	LeaderHeartbeatCount   int `yaml:"leader_heartbeat_count,omitempty"`
+	LeaderHeartbeatTimeout  int    `yaml:"leader_heartbeat_timeout,omitempty"`
+	LeaderHeartbeatCount    int    `yaml:"leader_heartbeat_count,omitempty"`
+	RequestBatchMaxCount    int    `yaml:"request_batch_max_count,omitempty"`
+	RequestBatchMaxBytes    int    `yaml:"request_batch_max_bytes,omitempty"`
+	RequestBatchMaxInterval string `yaml:"request_batch_max_interval,omitempty"`
+	RequestPoolSize         int    `yaml:"request_pool_size,omitempty"`
+}
+
+// BDLS defines the configuration of BDLS options.
+type BDLS struct {
+	Delta0Ms                  int  `yaml:"delta0_ms,omitempty"`
+	Delta1Ms                  int  `yaml:"delta1_ms,omitempty"`
+	DeltaPrime1Ms             int  `yaml:"delta_prime1_ms,omitempty"`
+	Delta2Ms                  int  `yaml:"delta2_ms,omitempty"`
+	Delta3Ms                  int  `yaml:"delta3_ms,omitempty"`
+	LatencyMs                 int  `yaml:"latency_ms,omitempty"`
+	RequestBatchMaxCount      int  `yaml:"request_batch_max_count,omitempty"`
+	RequestBatchMaxBytesSize  int  `yaml:"request_batch_max_bytes_size,omitempty"`
+	RequestBatchMaxIntervalMs int  `yaml:"request_batch_max_interval_ms,omitempty"`
+	ReliableDecide            bool `yaml:"reliable_decide,omitempty"`
+	DisableReliableDecide     bool `yaml:"disable_reliable_decide,omitempty"`
+	CompactBlockState         bool `yaml:"compact_block_state,omitempty"`
 }
 
 // Organization models information about an Organization. It includes
@@ -142,23 +163,29 @@ type Profile struct {
 	ChannelCapabilities []string  `yaml:"channel_capabilities,omitempty"`
 	Blocks              *Blocks   `yaml:"blocks,omitempty"`
 	SmartBFT            *SmartBFT `yaml:"smart_bft,omitempty"`
+	BDLS                *BDLS     `yaml:"bdls,omitempty"`
 }
 
 // Network holds information about a fabric network.
 type Network struct {
-	RootDir               string
-	StartPort             uint16
-	Components            *Components
-	DockerClient          *docker.Client
-	ExternalBuilders      []fabricconfig.ExternalBuilder
-	NetworkID             string
-	EventuallyTimeout     time.Duration
-	SessionCreateInterval time.Duration
-	MetricsProvider       string
-	StatsdEndpoint        string
-	ClientAuthRequired    bool
-	TLSEnabled            bool
-	GatewayEnabled        bool
+	RootDir                  string
+	StartPort                uint16
+	Components               *Components
+	DockerClient             dcli.APIClient
+	ExternalBuilders         []fabricconfig.ExternalBuilder
+	NetworkID                string
+	EventuallyTimeout        time.Duration
+	SessionCreateInterval    time.Duration
+	MetricsProvider          string
+	StatsdEndpoint           string
+	ClientAuthRequired       bool
+	TLSEnabled               bool
+	GatewayEnabled           bool
+	OrdererReplicationPolicy string
+	PeerDeliveryClientPolicy string
+	UseWriteBatch            bool
+	UseGetMultipleKeys       bool
+	CCEnvVersion             string
 
 	PortsByOrdererID map[string]Ports
 	PortsByPeerID    map[string]Ports
@@ -178,18 +205,22 @@ type Network struct {
 // New creates a Network from a simple configuration. All generated or managed
 // artifacts for the network will be located under rootDir. Ports will be
 // allocated sequentially from the specified startPort.
-func New(c *Config, rootDir string, dockerClient *docker.Client, startPort int, components *Components) *Network {
+func New(c *Config, rootDir string, dockerClient dcli.APIClient, startPort int, components *Components) *Network {
 	network := &Network{
 		StartPort:    uint16(startPort),
 		RootDir:      rootDir,
 		Components:   components,
 		DockerClient: dockerClient,
 
-		NetworkID:         runner.UniqueName(),
-		EventuallyTimeout: time.Minute,
-		MetricsProvider:   "prometheus",
-		PortsByOrdererID:  map[string]Ports{},
-		PortsByPeerID:     map[string]Ports{},
+		NetworkID:                runner.UniqueName(),
+		EventuallyTimeout:        time.Minute,
+		MetricsProvider:          "prometheus",
+		PortsByOrdererID:         map[string]Ports{},
+		PortsByPeerID:            map[string]Ports{},
+		PeerDeliveryClientPolicy: "",
+		UseWriteBatch:            true,
+		UseGetMultipleKeys:       true,
+		CCEnvVersion:             "$(PROJECT_VERSION)",
 
 		Organizations:  c.Organizations,
 		Consensus:      c.Consensus,
@@ -250,14 +281,14 @@ func New(c *Config, rootDir string, dockerClient *docker.Client, startPort int, 
 	return network
 }
 
-func assertImagesExist(dockerClient *docker.Client, images ...string) {
+func assertImagesExist(dockerClient dcli.APIClient, images ...string) {
 	for _, imageName := range images {
-		images, err := dockerClient.ListImages(docker.ListImagesOptions{
-			Filters: map[string][]string{"reference": {imageName}},
+		images, err := dockerClient.ImageList(context.Background(), dcli.ImageListOptions{
+			Filters: make(dcli.Filters).Add("reference", imageName),
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		if len(images) != 1 {
+		if len(images.Items) != 1 {
 			ginkgo.Fail(fmt.Sprintf("missing required image: %s", imageName), 1)
 		}
 	}
@@ -277,7 +308,7 @@ func (n *Network) AddOrg(o *Organization, peers ...*Peer) {
 	n.Organizations = append(n.Organizations, o)
 }
 
-// ConfigTxPath returns the path to the generated configtxgen configuration
+// ConfigTxConfigPath returns the path to the generated configtxgen configuration
 // file.
 func (n *Network) ConfigTxConfigPath() string {
 	return filepath.Join(n.RootDir, "configtx.yaml")
@@ -794,12 +825,9 @@ func (n *Network) Bootstrap() {
 }
 
 func (n *Network) CreateDockerNetwork() {
-	_, err := n.DockerClient.CreateNetwork(
-		docker.CreateNetworkOptions{
-			Name:   n.NetworkID,
-			Driver: "bridge",
-		},
-	)
+	_, err := n.DockerClient.NetworkCreate(context.Background(), n.NetworkID, dcli.NetworkCreateOptions{
+		Driver: "bridge",
+	})
 	Expect(err).NotTo(HaveOccurred())
 
 	if runtime.GOOS == "darwin" {
@@ -837,14 +865,14 @@ func (n *Network) checkDockerNetworks() {
 }
 
 func (n *Network) dockerIPNets() []*net.IPNet {
-	dockerNetworks, err := n.DockerClient.ListNetworks()
+	dockerNetworks, err := n.DockerClient.NetworkList(context.Background(), dcli.NetworkListOptions{})
 	Expect(err).NotTo(HaveOccurred())
 
 	var nets []*net.IPNet
-	for _, nw := range dockerNetworks {
+	for _, nw := range dockerNetworks.Items {
 		for _, ipconf := range nw.IPAM.Config {
-			if ipconf.Subnet != "" {
-				_, ipn, err := net.ParseCIDR(ipconf.Subnet)
+			if ipconf.Subnet.String() != "" {
+				_, ipn, err := net.ParseCIDR(ipconf.Subnet.String())
 				Expect(err).NotTo(HaveOccurred())
 				nets = append(nets, ipn)
 			}
@@ -863,7 +891,6 @@ func hostIPv4Addrs() []net.IP {
 		Expect(err).NotTo(HaveOccurred())
 
 		for _, a := range addrs {
-			a := a
 			switch v := a.(type) {
 			case *net.IPAddr:
 				if v.IP.To4() != nil {
@@ -944,30 +971,36 @@ func (n *Network) Cleanup() {
 		return
 	}
 
-	nw, err := n.DockerClient.NetworkInfo(n.NetworkID)
+	nw, err := n.DockerClient.NetworkInspect(context.Background(), n.NetworkID, dcli.NetworkInspectOptions{})
 	Expect(err).NotTo(HaveOccurred())
 
-	err = n.DockerClient.RemoveNetwork(nw.ID)
+	_, err = n.DockerClient.NetworkRemove(context.Background(), nw.Network.ID, dcli.NetworkRemoveOptions{})
 	Expect(err).NotTo(HaveOccurred())
 
-	containers, err := n.DockerClient.ListContainers(docker.ListContainersOptions{All: true})
+	containers, err := n.DockerClient.ContainerList(context.Background(), dcli.ContainerListOptions{
+		All: true,
+	})
 	Expect(err).NotTo(HaveOccurred())
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		for _, name := range c.Names {
 			if strings.HasPrefix(name, "/"+n.NetworkID) {
-				err := n.DockerClient.RemoveContainer(docker.RemoveContainerOptions{ID: c.ID, Force: true})
+				_, err = n.DockerClient.ContainerRemove(context.Background(), c.ID, dcli.ContainerRemoveOptions{
+					Force: true,
+				})
 				Expect(err).NotTo(HaveOccurred())
 				break
 			}
 		}
 	}
 
-	images, err := n.DockerClient.ListImages(docker.ListImagesOptions{All: true})
+	images, err := n.DockerClient.ImageList(context.Background(), dcli.ImageListOptions{
+		All: true,
+	})
 	Expect(err).NotTo(HaveOccurred())
-	for _, i := range images {
+	for _, i := range images.Items {
 		for _, tag := range i.RepoTags {
 			if strings.HasPrefix(tag, n.NetworkID) {
-				err := n.DockerClient.RemoveImage(i.ID)
+				_, err = n.DockerClient.ImageRemove(context.Background(), i.ID, dcli.ImageRemoveOptions{})
 				Expect(err).NotTo(HaveOccurred())
 				break
 			}
@@ -1000,46 +1033,6 @@ func (n *Network) CreateAndJoinChannel(o *Orderer, channelName string) {
 	n.JoinChannel(channelName, o, peers...)
 }
 
-// UpdateChannelAnchors determines the anchor peers for the specified channel,
-// creates an anchor peer update transaction for each organization, and submits
-// the update transactions to the orderer.
-//
-// TODO using configtxgen with -outputAnchorPeersUpdate to update the anchor peers is deprecated and does not work
-// with channel participation API. We'll have to generate the channel update explicitly (see UpdateOrgAnchorPeers).
-func (n *Network) UpdateChannelAnchors(o *Orderer, channelName string) {
-	tempFile, err := os.CreateTemp("", "update-anchors")
-	Expect(err).NotTo(HaveOccurred())
-	tempFile.Close()
-	defer os.Remove(tempFile.Name())
-
-	peersByOrg := map[string]*Peer{}
-	for _, p := range n.AnchorsForChannel(channelName) {
-		peersByOrg[p.Organization] = p
-	}
-
-	for orgName, p := range peersByOrg {
-		anchorUpdate := commands.OutputAnchorPeersUpdate{
-			OutputAnchorPeersUpdate: tempFile.Name(),
-			ChannelID:               channelName,
-			Profile:                 n.ProfileForChannel(channelName),
-			ConfigPath:              n.RootDir,
-			AsOrg:                   orgName,
-		}
-		sess, err := n.ConfigTxGen(anchorUpdate)
-		Expect(err).NotTo(HaveOccurred())
-		Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
-
-		sess, err = n.PeerAdminSession(p, commands.ChannelUpdate{
-			ChannelID:  channelName,
-			Orderer:    n.OrdererAddress(o, ListenPort),
-			File:       tempFile.Name(),
-			ClientAuth: n.ClientAuthRequired,
-		})
-		Expect(err).NotTo(HaveOccurred())
-		Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
-	}
-}
-
 // UpdateOrgAnchorPeers sets the anchor peers of an organization on a channel using a config update tx, and waits for
 // the update to be complete.
 func (n *Network) UpdateOrgAnchorPeers(o *Orderer, channelName, orgName string, anchorPeersForOrg []*Peer) {
@@ -1065,7 +1058,7 @@ func (n *Network) UpdateOrgAnchorPeers(o *Orderer, channelName, orgName string, 
 		ModPolicy: "Admins",
 	}
 
-	UpdateConfig(n, o, channelName, currentConfig, updatedConfig, false, peersInOrg[0], peersInOrg[0])
+	UpdateConfig(n, o, channelName, currentConfig, updatedConfig, false, peersInOrg[0], nil, peersInOrg[0])
 }
 
 // VerifyMembership checks that each peer has discovered the expected peers in
@@ -1086,7 +1079,7 @@ func (n *Network) discoveredPeerMatcher(p *Peer, chaincodes ...string) types.Gom
 	peerCert, err := os.ReadFile(n.PeerCert(p))
 	Expect(err).NotTo(HaveOccurred())
 
-	var ccs []interface{}
+	var ccs []any
 	for _, cc := range chaincodes {
 		ccs = append(ccs, cc)
 	}
@@ -1105,7 +1098,7 @@ func (n *Network) discoveredPeerMatcher(p *Peer, chaincodes ...string) types.Gom
 // the channel config for the new channel.
 //
 // The orderer must be running when this is called.
-func (n *Network) CreateChannel(channelName string, o *Orderer, p *Peer, additionalSigners ...interface{}) {
+func (n *Network) CreateChannel(channelName string, o *Orderer, p *Peer, additionalSigners ...any) {
 	channelCreateTxPath := n.CreateChannelTxPath(channelName)
 	n.signConfigTransaction(channelCreateTxPath, p, additionalSigners...)
 
@@ -1123,13 +1116,14 @@ func (n *Network) CreateChannel(channelName string, o *Orderer, p *Peer, additio
 	Eventually(createChannel, n.EventuallyTimeout).Should(Equal(0))
 }
 
+// deprecated
 // CreateChannelExitCode will submit an existing create channel transaction to
 // the specified orderer, wait for the operation to complete, and return the
 // exit status of the "peer channel create" command.
 //
 // The channel transaction must exist at the location returned by
 // CreateChannelTxPath and the orderer must be running when this is called.
-func (n *Network) CreateChannelExitCode(channelName string, o *Orderer, p *Peer, additionalSigners ...interface{}) int {
+func (n *Network) CreateChannelExitCode(channelName string, o *Orderer, p *Peer, additionalSigners ...any) int {
 	channelCreateTxPath := n.CreateChannelTxPath(channelName)
 	n.signConfigTransaction(channelCreateTxPath, p, additionalSigners...)
 
@@ -1144,7 +1138,7 @@ func (n *Network) CreateChannelExitCode(channelName string, o *Orderer, p *Peer,
 	return sess.Wait(n.EventuallyTimeout).ExitCode()
 }
 
-func (n *Network) signConfigTransaction(channelTxPath string, submittingPeer *Peer, signers ...interface{}) {
+func (n *Network) signConfigTransaction(channelTxPath string, submittingPeer *Peer, signers ...any) {
 	for _, signer := range signers {
 		switch signer := signer.(type) {
 		case *Peer:
@@ -1183,15 +1177,27 @@ func (n *Network) JoinChannel(name string, o *Orderer, peers ...*Peer) {
 	tempFile.Close()
 	defer os.Remove(tempFile.Name())
 
-	sess, err := n.PeerAdminSession(peers[0], commands.ChannelFetch{
-		Block:      "0",
-		ChannelID:  name,
-		Orderer:    n.OrdererAddress(o, ListenPort),
-		OutputFile: tempFile.Name(),
-		ClientAuth: n.ClientAuthRequired,
-	})
-	Expect(err).NotTo(HaveOccurred())
-	Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
+	Eventually(func() string {
+		block, err := Fetch(n, o, name, "0")
+		if err != nil {
+			return fmt.Sprintf("error is %s", err.Error())
+		}
+
+		if block == nil {
+			return "proto: Marshal called with nil"
+		}
+
+		b, err := proto.Marshal(block)
+		if err != nil {
+			return err.Error()
+		}
+
+		if err = os.WriteFile(tempFile.Name(), b, 0o644); err != nil {
+			return err.Error()
+		}
+
+		return ""
+	}, n.EventuallyTimeout, time.Second).Should(BeEmpty())
 
 	for _, p := range peers {
 		sess, err := n.PeerAdminSession(p, commands.ChannelJoin{
@@ -1262,8 +1268,9 @@ func (n *Network) Osnadmin(command Command) (*gexec.Session, error) {
 // can be used to start and manage an orderer process.
 func (n *Network) OrdererRunner(o *Orderer, env ...string) *ginkgomon.Runner {
 	cmd := exec.Command(n.Components.Orderer())
-	cmd.Env = os.Environ()
+	cmd.Env = cleanEnv(os.Environ())
 	cmd.Env = append(cmd.Env, fmt.Sprintf("FABRIC_CFG_PATH=%s", n.OrdererDir(o)))
+	cmd.Env = append(cmd.Env, fabricLoggingSpec)
 	cmd.Env = append(cmd.Env, env...)
 
 	config := ginkgomon.Config{
@@ -1296,6 +1303,7 @@ func (n *Network) PeerRunner(p *Peer, env ...string) *ginkgomon.Runner {
 		"FABRIC_CFG_PATH="+n.PeerDir(p),
 		"CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin",
 		"CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw",
+		fabricLoggingSpec,
 	)
 	cmd.Env = append(cmd.Env, env...)
 
@@ -1350,7 +1358,7 @@ func (n *Network) peerCommand(command Command, tlsDir string, env ...string) *ex
 	// usages we have, and add the same (concatenated TLS CA certificates file)
 	// the same number of times to bypass the peer CLI sanity checks
 	requiredPeerAddresses := flagCount("--peerAddresses", cmd.Args)
-	for i := 0; i < requiredPeerAddresses; i++ {
+	for range requiredPeerAddresses {
 		cmd.Args = append(cmd.Args, "--tlsRootCertFiles")
 		cmd.Args = append(cmd.Args, n.CACertsBundlePath())
 	}
@@ -1365,21 +1373,11 @@ func (n *Network) peerCommand(command Command, tlsDir string, env ...string) *ex
 }
 
 func connectsToOrderer(c Command) bool {
-	for _, arg := range c.Args() {
-		if arg == "--orderer" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Args(), "--orderer")
 }
 
 func clientAuthEnabled(c Command) bool {
-	for _, arg := range c.Args() {
-		if arg == "--clientauth" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Args(), "--clientauth")
 }
 
 func flagCount(flag string, args []string) int {
@@ -1408,6 +1406,7 @@ func (n *Network) PeerUserSession(p *Peer, user string, command Command) (*gexec
 		n.PeerUserTLSDir(p, user),
 		fmt.Sprintf("FABRIC_CFG_PATH=%s", n.PeerDir(p)),
 		fmt.Sprintf("CORE_PEER_MSPCONFIGPATH=%s", n.PeerUserMSPDir(p, user)),
+		fabricLoggingSpec,
 	)
 	return n.StartSession(cmd, command.SessionName())
 }
@@ -1470,14 +1469,8 @@ func (n *Network) NewClientConn(address, caCertPath string, clientCertPath strin
 		creds = credentials.NewTLS(config)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	conn, err := grpc.DialContext(
-		ctx,
+	conn, err := grpc.NewClient(
 		address,
-		grpc.WithBlock(),
-		grpc.FailOnNonTempDialError(true),
 		grpc.WithTransportCredentials(creds),
 	)
 	Expect(err).NotTo(HaveOccurred())
@@ -1496,6 +1489,7 @@ func (n *Network) IdemixUserSession(p *Peer, idemixOrg *Organization, user strin
 		fmt.Sprintf("CORE_PEER_MSPCONFIGPATH=%s", n.IdemixUserMSPDir(idemixOrg, user)),
 		fmt.Sprintf("CORE_PEER_LOCALMSPTYPE=%s", "idemix"),
 		fmt.Sprintf("CORE_PEER_LOCALMSPID=%s", idemixOrg.MSPID),
+		fabricLoggingSpec,
 	)
 	return n.StartSession(cmd, command.SessionName())
 }
@@ -1509,6 +1503,7 @@ func (n *Network) OrdererAdminSession(o *Orderer, p *Peer, command Command) (*ge
 		fmt.Sprintf("CORE_PEER_LOCALMSPID=%s", n.Organization(o.Organization).MSPID),
 		fmt.Sprintf("FABRIC_CFG_PATH=%s", n.PeerDir(p)),
 		fmt.Sprintf("CORE_PEER_MSPCONFIGPATH=%s", n.OrdererUserMSPDir(o, "Admin")),
+		fabricLoggingSpec,
 	)
 	return n.StartSession(cmd, command.SessionName())
 }
@@ -1709,6 +1704,12 @@ const (
 	OperationsPort PortName = "Operations"
 	ClusterPort    PortName = "Cluster"
 	AdminPort      PortName = "Admin"
+
+	// Default logging spec, may get overridden in specific tests
+	// For most components INFO logging is suitable
+	// When troubleshooting a specific test FABRIC_LOGGING_SPEC can be edited to suppress chatty components and debug other components
+	// e.g. "FABRIC_LOGGING_SPEC=info:grpc=warn:bccsp_p11=debug"
+	fabricLoggingSpec = "FABRIC_LOGGING_SPEC=info"
 )
 
 // PeerPortNames returns the list of ports that need to be reserved for a Peer.

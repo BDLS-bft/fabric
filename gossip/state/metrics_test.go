@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	proto "github.com/hyperledger/fabric-protos-go/gossip"
+	proto "github.com/hyperledger/fabric-protos-go-apiv2/gossip"
 	"github.com/hyperledger/fabric/gossip/discovery"
 	"github.com/hyperledger/fabric/gossip/metrics"
 	gmetricsmocks "github.com/hyperledger/fabric/gossip/metrics/mocks"
@@ -66,21 +66,25 @@ func TestMetrics(t *testing.T) {
 	committedDurationWG.Wait()
 
 	// ensure the right height was reported
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", "testchannelid"},
 		testMetricProvider.FakeHeightGauge.WithArgsForCall(0),
 	)
-	require.EqualValues(t,
+	require.EqualValues(
+		t,
 		101,
 		testMetricProvider.FakeHeightGauge.SetArgsForCall(0),
 	)
 
 	// after push or pop payload buffer size should be reported
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", "testchannelid"},
 		testMetricProvider.FakePayloadBufferSizeGauge.WithArgsForCall(0),
 	)
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]string{"channel", "testchannelid"},
 		testMetricProvider.FakePayloadBufferSizeGauge.WithArgsForCall(1),
 	)

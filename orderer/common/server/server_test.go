@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	ab "github.com/hyperledger/fabric-protos-go/orderer"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	ab "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	"github.com/hyperledger/fabric/orderer/common/multichannel"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestBroadcastNoPanic(t *testing.T) {
@@ -88,7 +88,7 @@ func testMsgTrace(handler func(dir string, msg *cb.Envelope) recvr, t *testing.T
 	require.Nil(t, err)
 
 	var fileData []byte
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		// Writing the trace file is deliberately non-blocking, wait up to a second, checking every 10 ms to see if the file now exists.
 		time.Sleep(10 * time.Millisecond)
 		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {

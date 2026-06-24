@@ -7,15 +7,15 @@ SPDX-License-Identifier: Apache-2.0
 package validation
 
 import (
+	crand "crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"testing"
-	"time"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/msp"
 	mspmgmt "github.com/hyperledger/fabric/msp/mgmt"
 	msptesttools "github.com/hyperledger/fabric/msp/mgmt/testtools"
@@ -206,8 +206,10 @@ func TestTXWithTwoActionsRejected(t *testing.T) {
 }
 
 func corrupt(bytes []byte) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	bytes[r.Intn(len(bytes))]--
+	var seed [32]byte
+	_, _ = crand.Read(seed[:])
+	r := rand.New(rand.NewChaCha8(seed))
+	bytes[r.IntN(len(bytes))]--
 }
 
 func TestBadTx(t *testing.T) {
@@ -239,7 +241,7 @@ func TestBadTx(t *testing.T) {
 	paylOrig := tx.Payload
 	cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
 	require.NoError(t, err)
-	for i := 0; i < len(paylOrig); i++ {
+	for i := range paylOrig {
 		paylCopy := make([]byte, len(paylOrig))
 		copy(paylCopy, paylOrig)
 		paylCopy[i] = byte(int(paylCopy[i]+1) % 255)

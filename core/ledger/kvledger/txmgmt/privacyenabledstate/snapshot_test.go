@@ -16,12 +16,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/ledger/snapshot"
 	"github.com/hyperledger/fabric/core/ledger/internal/version"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/privacyenabledstate/mock"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/statedb"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/protoadapt"
 )
 
 var testNewHashFunc = func() (hash.Hash, error) {
@@ -41,16 +43,16 @@ func testSnapshot(t *testing.T, env TestEnv) {
 	generateSampleData := func(namespaces ...string) []*statedb.VersionedKV {
 		sampleData := []*statedb.VersionedKV{}
 		for _, ns := range namespaces {
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				sampleKV := &statedb.VersionedKV{
 					CompositeKey: &statedb.CompositeKey{
 						Namespace: ns,
 						Key:       fmt.Sprintf("key-%d", i),
 					},
 					VersionedValue: &statedb.VersionedValue{
-						Value:    []byte(fmt.Sprintf("value-for-key-%d-for-%s", i, ns)),
+						Value:    fmt.Appendf(nil, "value-for-key-%d-for-%s", i, ns),
 						Version:  version.NewHeight(1, 1),
-						Metadata: []byte(fmt.Sprintf("metadata-for-key-%d-for-%s", i, ns)),
+						Metadata: fmt.Appendf(nil, "metadata-for-key-%d-for-%s", i, ns),
 					},
 				}
 				sampleData = append(sampleData, sampleKV)
@@ -166,7 +168,8 @@ func testSnapshotWithSampleData(t *testing.T, env TestEnv,
 	// verify exported snapshot files
 	filesAndHashesSrcDB, err := sourceDB.ExportPubStateAndPvtStateHashes(snapshotDirSrcDB, testNewHashFunc)
 	require.NoError(t, err)
-	verifyExportedSnapshot(t,
+	verifyExportedSnapshot(
+		t,
 		snapshotDirSrcDB,
 		filesAndHashesSrcDB,
 		publicState != nil,
@@ -176,7 +179,8 @@ func testSnapshotWithSampleData(t *testing.T, env TestEnv,
 	// import snapshot in a fresh db and verify the imported state
 	destinationDBName := generateLedgerID(t)
 	err = env.GetProvider().ImportFromSnapshot(
-		destinationDBName, version.NewHeight(10, 10), snapshotDirSrcDB)
+		destinationDBName, version.NewHeight(10, 10), snapshotDirSrcDB,
+	)
 	require.NoError(t, err)
 	destinationDB := env.GetDBHandle(destinationDBName)
 	verifyImportedSnapshot(t, destinationDB,
@@ -302,7 +306,8 @@ func TestSnapshotImportMetadtaHintImport(t *testing.T) {
 	// import snapshot in a fresh db
 	destinationDBName := generateLedgerID(t)
 	err = env.GetProvider().ImportFromSnapshot(
-		destinationDBName, version.NewHeight(10, 10), snapshotDir)
+		destinationDBName, version.NewHeight(10, 10), snapshotDir,
+	)
 	require.NoError(t, err)
 	destinationDB := env.GetDBHandle(destinationDBName)
 	h := destinationDB.metadataHint
@@ -507,7 +512,8 @@ func TestSnapshotImportErrorPropagation(t *testing.T) {
 			require.NoError(t, os.Remove(dataFile))
 			require.NoError(t, os.MkdirAll(dataFile, 0o700))
 			err := dbEnv.GetProvider().ImportFromSnapshot(
-				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir)
+				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir,
+			)
 			require.Contains(t, err.Error(), fmt.Sprintf("the supplied path [%s] is a dir", dataFile))
 		})
 
@@ -519,7 +525,8 @@ func TestSnapshotImportErrorPropagation(t *testing.T) {
 			require.NoError(t, os.Remove(dataFile))
 			require.NoError(t, os.WriteFile(dataFile, []byte(""), 0o600))
 			err := dbEnv.GetProvider().ImportFromSnapshot(
-				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir)
+				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir,
+			)
 			require.Contains(t, err.Error(), fmt.Sprintf("error while opening data file: error while reading from the snapshot file: %s", dataFile))
 		})
 
@@ -531,7 +538,8 @@ func TestSnapshotImportErrorPropagation(t *testing.T) {
 			require.NoError(t, os.Remove(dataFile))
 			require.NoError(t, os.WriteFile(dataFile, []byte{0x00}, 0o600))
 			err := dbEnv.GetProvider().ImportFromSnapshot(
-				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir)
+				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir,
+			)
 			require.EqualError(t, err, "error while opening data file: unexpected data format: 0")
 		})
 
@@ -545,7 +553,8 @@ func TestSnapshotImportErrorPropagation(t *testing.T) {
 			require.NoError(t, os.WriteFile(dataFile, []byte{snapshotFileFormat}, 0o600))
 
 			err := dbEnv.GetProvider().ImportFromSnapshot(
-				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir)
+				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir,
+			)
 
 			require.Contains(t, err.Error(), "error while retrieving record from snapshot file")
 		})
@@ -558,19 +567,26 @@ func TestSnapshotImportErrorPropagation(t *testing.T) {
 			require.NoError(t, os.Remove(dataFile))
 
 			fileContent := []byte{snapshotFileFormat}
-			buf := proto.NewBuffer(nil)
-			require.NoError(t,
-				buf.EncodeMessage(
-					&SnapshotRecord{
-						Version: []byte("bad-version-bytes"),
-					},
-				),
-			)
-			fileContent = append(fileContent, buf.Bytes()...)
+			sr := &SnapshotRecord{
+				Version: []byte("bad-version-bytes"),
+			}
+			srTmp := protoadapt.MessageV2Of(sr)
+			var buf []byte
+			buf = protowire.AppendVarint(buf, uint64(proto.Size(sr)))
+			nbuf, err := proto.MarshalOptions{
+				Deterministic: false,
+				AllowPartial:  true,
+			}.MarshalAppend(buf, srTmp)
+			require.NoError(t, err)
+			if len(buf) == len(nbuf) {
+				require.True(t, srTmp.ProtoReflect().IsValid())
+			}
+			fileContent = append(fileContent, nbuf...)
 			require.NoError(t, os.WriteFile(dataFile, fileContent, 0o600))
 
-			err := dbEnv.GetProvider().ImportFromSnapshot(
-				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir)
+			err = dbEnv.GetProvider().ImportFromSnapshot(
+				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir,
+			)
 
 			require.Contains(t, err.Error(), "error while decoding version")
 		})
@@ -585,7 +601,8 @@ func TestSnapshotImportErrorPropagation(t *testing.T) {
 			metadataFile := filepath.Join(snapshotDir, f)
 			require.NoError(t, os.Remove(metadataFile))
 			err := dbEnv.GetProvider().ImportFromSnapshot(
-				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir)
+				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir,
+			)
 			require.Contains(t, err.Error(), "error while opening the snapshot file: "+metadataFile)
 		})
 
@@ -600,7 +617,8 @@ func TestSnapshotImportErrorPropagation(t *testing.T) {
 			require.NoError(t, os.WriteFile(metadataFile, fileContentWithMissingNumRows, 0o600))
 
 			err := dbEnv.GetProvider().ImportFromSnapshot(
-				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir)
+				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir,
+			)
 			require.Contains(t, err.Error(), "error while reading num-rows in metadata")
 		})
 
@@ -612,13 +630,14 @@ func TestSnapshotImportErrorPropagation(t *testing.T) {
 			require.NoError(t, os.Remove(metadataFile))
 
 			fileContentWithMissingCCName := []byte{snapshotFileFormat}
-			buf := proto.NewBuffer(nil)
-			require.NoError(t, buf.EncodeVarint(5))
-			fileContentWithMissingCCName = append(fileContentWithMissingCCName, buf.Bytes()...)
+			var buf []byte
+			buf = protowire.AppendVarint(buf, 5)
+			fileContentWithMissingCCName = append(fileContentWithMissingCCName, buf...)
 			require.NoError(t, os.WriteFile(metadataFile, fileContentWithMissingCCName, 0o600))
 
 			err := dbEnv.GetProvider().ImportFromSnapshot(
-				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir)
+				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir,
+			)
 			require.Contains(t, err.Error(), "error while reading namespace name")
 		})
 
@@ -630,14 +649,15 @@ func TestSnapshotImportErrorPropagation(t *testing.T) {
 			require.NoError(t, os.Remove(metadataFile))
 
 			fileContentWithMissingCCName := []byte{snapshotFileFormat}
-			buf := proto.NewBuffer(nil)
-			require.NoError(t, buf.EncodeVarint(1))
-			require.NoError(t, buf.EncodeRawBytes([]byte("my-chaincode")))
-			fileContentWithMissingCCName = append(fileContentWithMissingCCName, buf.Bytes()...)
+			var buf []byte
+			buf = protowire.AppendVarint(buf, 1)
+			buf = protowire.AppendBytes(buf, []byte("my-chaincode"))
+			fileContentWithMissingCCName = append(fileContentWithMissingCCName, buf...)
 			require.NoError(t, os.WriteFile(metadataFile, fileContentWithMissingCCName, 0o600))
 
 			err := dbEnv.GetProvider().ImportFromSnapshot(
-				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir)
+				generateLedgerID(t), version.NewHeight(10, 10), snapshotDir,
+			)
 			require.Contains(t, err.Error(), fmt.Sprintf("error while reading num entries for the namespace [%s]", "my-chaincode"))
 		})
 	}
@@ -648,7 +668,8 @@ func TestSnapshotImportErrorPropagation(t *testing.T) {
 
 		dbEnv.provider.Close()
 		err := dbEnv.GetProvider().ImportFromSnapshot(
-			generateLedgerID(t), version.NewHeight(10, 10), snapshotDir)
+			generateLedgerID(t), version.NewHeight(10, 10), snapshotDir,
+		)
 
 		require.Contains(t, err.Error(), "error writing batch to leveldb")
 	})
@@ -659,7 +680,8 @@ func TestSnapshotImportErrorPropagation(t *testing.T) {
 
 		dbEnv.provider.bookkeepingProvider.Close()
 		err := dbEnv.GetProvider().ImportFromSnapshot(
-			generateLedgerID(t), version.NewHeight(10, 10), snapshotDir)
+			generateLedgerID(t), version.NewHeight(10, 10), snapshotDir,
+		)
 
 		require.Contains(t, err.Error(), "error while writing to metadata-hint db")
 	})

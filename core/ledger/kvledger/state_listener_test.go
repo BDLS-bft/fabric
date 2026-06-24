@@ -9,11 +9,11 @@ package kvledger
 import (
 	"testing"
 
-	"github.com/hyperledger/fabric-protos-go/ledger/queryresult"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
-	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/queryresult"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset/kvrwset"
 	"github.com/hyperledger/fabric/common/ledger/testutil"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/mock"
 	"github.com/stretchr/testify/require"
@@ -62,7 +62,7 @@ func TestStateListener(t *testing.T) {
 	require.NoError(t, sim2.SetState(namespace, "key3", []byte("value3")))
 	sim2.Done()
 
-	// Simulate tx3 - this neighter conflicts with tx1 nor with tx2
+	// Simulate tx3 - this neither conflicts with tx1 nor with tx2
 	sim3, err := lgr.NewTxSimulator("test_tx_3")
 	require.NoError(t, err)
 	require.NoError(t, sim3.SetState(namespace, "key4", []byte("value4")))
@@ -120,7 +120,8 @@ func TestStateListener(t *testing.T) {
 	require.NoError(t, err)
 	defer lgr.Close()
 	require.NoError(t, err)
-	require.Equal(t,
+	require.Equal(
+		t,
 		[]*queryresult.KV{
 			{
 				Namespace: namespace,
@@ -172,7 +173,8 @@ func (l *mockStateListener) Initialize(ledgerID string, qe ledger.SimpleQueryExe
 			break
 		}
 		kv := res.(*queryresult.KV)
-		l.queryResultsInInitializeFunc = append(l.queryResultsInInitializeFunc,
+		l.queryResultsInInitializeFunc = append(
+			l.queryResultsInInitializeFunc,
 			kv,
 		)
 	}

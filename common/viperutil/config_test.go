@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hyperledger/fabric/bccsp/factory"
+	"github.com/hyperledger/fabric-lib-go/bccsp/factory"
 	"github.com/hyperledger/fabric/orderer/mocks/util"
 	"github.com/stretchr/testify/require"
 )
@@ -159,7 +159,7 @@ func TestPEMBlocksFromFile(t *testing.T) {
 	defer os.Remove(file.Name())
 
 	var pems []byte
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		publicKeyCert, _, _ := util.GenerateMockPublicPrivateKeyPairPEM(true)
 		pems = append(pems, publicKeyCert...)
 	}
@@ -185,7 +185,7 @@ func TestPEMBlocksFromFileEnv(t *testing.T) {
 	defer os.Remove(file.Name())
 
 	var pems []byte
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		publicKeyCert, _, _ := util.GenerateMockPublicPrivateKeyPairPEM(true)
 		pems = append(pems, publicKeyCert...)
 	}

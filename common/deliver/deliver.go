@@ -4,6 +4,8 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
+// Package deliver contains an implementation of the server-side handlers of the gRPC delivery service.
+// The delivery service runs in the orderer and is used to deliver blocks to peers, as well as to other orderers.
 package deliver
 
 import (
@@ -13,16 +15,16 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	ab "github.com/hyperledger/fabric-protos-go/orderer"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	ab "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/common/crypto"
-	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 var logger = flogging.MustGetLogger("common.deliver")
@@ -195,6 +197,8 @@ func isFiltered(srv *Server) bool {
 	return false
 }
 
+// deliverBlocks handles delivering blocks to the client from the blockchain channel.
+// It processes a signed envelope from a client and responds with the requested blocks.
 func (h *Handler) deliverBlocks(ctx context.Context, srv *Server, envelope *cb.Envelope) (status cb.Status, err error) {
 	addr := util.ExtractRemoteAddress(ctx)
 	payload, chdr, shdr, err := h.parseEnvelope(ctx, envelope)
@@ -408,22 +412,4 @@ func (h *Handler) validateChannelHeader(ctx context.Context, chdr *cb.ChannelHea
 
 func noExpiration(_ []byte) time.Time {
 	return time.Time{}
-}
-
-func (h *Handler) HandleAttestation(ctx context.Context, srv *Server, env *cb.Envelope) error {
-	status, err := h.deliverBlocks(ctx, srv, env)
-	if err != nil {
-		return err
-	}
-
-	err = srv.SendStatusResponse(status)
-	if status != cb.Status_SUCCESS {
-		return err
-	}
-	if err != nil {
-		addr := util.ExtractRemoteAddress(ctx)
-		logger.Warningf("Error sending to %s: %s", addr, err)
-		return err
-	}
-	return nil
 }

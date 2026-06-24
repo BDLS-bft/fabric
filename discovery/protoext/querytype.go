@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 package protoext
 
-import "github.com/hyperledger/fabric-protos-go/discovery"
+import "github.com/hyperledger/fabric-protos-go-apiv2/discovery"
 
 // QueryType defines the types of service discovery requests
 type QueryType uint8
@@ -19,7 +19,7 @@ const (
 	LocalMembershipQueryType
 )
 
-// GetType returns the type of the request
+// GetQueryType returns the type of the request
 func GetQueryType(q *discovery.Query) QueryType {
 	switch {
 	case q.GetCcQuery() != nil:

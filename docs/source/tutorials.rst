@@ -8,7 +8,7 @@ tutorial to deploy and test your smart contracts. The :doc:`write_first_app`
 tutorial provides an introduction to how to use the APIs provided by the Fabric
 SDKs to invoke smart contracts from your client applications. For an in depth
 overview of how Fabric applications and smart contracts work together, you
-can visit the :doc:`developapps/developing_applications` topic.
+can visit the :doc:`smartcontract/smartcontract` topic.
 
 Network operators can use the :doc:`deploy_chaincode` tutorial and the
 :doc:`create_channel/create_channel_overview` tutorial series to learn
@@ -42,6 +42,7 @@ Finally, we provide an introduction to how to write a basic smart contract,
    couchdb_tutorial
    create_channel/create_channel_overview.md
    channel_update_tutorial
+   channel_remove_org
    config_update.md
    chaincode4ade
    peer-chaincode-devmode

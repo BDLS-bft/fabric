@@ -141,9 +141,6 @@ Profiles:{{ range .Profiles }}
     {{- if .Orderers }}
     Orderer:
       OrdererType: {{ $w.Consensus.Type }}
-      Addresses:{{ range .Orderers }}{{ with $w.Orderer . }}
-      - 127.0.0.1:{{ $w.OrdererPort . "Listen" }}
-      {{- end }}{{ end }}
       {{- if .Blocks}}
       BatchTimeout: {{ .Blocks.BatchTimeout }}s
       BatchSize:
@@ -162,11 +159,11 @@ Profiles:{{ range .Profiles }}
       {{- if eq $w.Consensus.Type "BFT" }}
       {{- if .SmartBFT}}
       SmartBFT:
-        RequestBatchMaxCount:      100
-        RequestBatchMaxBytes:      10485760
-        RequestBatchMaxInterval:   50ms
+        RequestBatchMaxCount:      {{ if .SmartBFT.RequestBatchMaxCount }}{{ .SmartBFT.RequestBatchMaxCount }}{{ else }}100{{ end }}
+        RequestBatchMaxBytes:      {{ if .SmartBFT.RequestBatchMaxBytes }}{{ .SmartBFT.RequestBatchMaxBytes }}{{ else }}10485760{{ end }}
+        RequestBatchMaxInterval:   {{ if .SmartBFT.RequestBatchMaxInterval }}{{ .SmartBFT.RequestBatchMaxInterval }}{{ else }}50ms{{ end }}
         IncomingMessageBufferSize: 200
-        RequestPoolSize:           400
+        RequestPoolSize:           {{ if .SmartBFT.RequestPoolSize }}{{ .SmartBFT.RequestPoolSize }}{{ else }}400{{ end }}
         RequestForwardTimeout:     2s
         RequestComplainTimeout:    20s
         RequestAutoRemoveTimeout:  3m
@@ -177,6 +174,32 @@ Profiles:{{ range .Profiles }}
         CollectTimeout:            1s
         SyncOnStart:               false
         SpeedUpViewChange:         false
+      {{- end }}
+      ConsenterMapping:{{ range $index, $orderer := .Orderers }}{{ with $w.Orderer . }}
+      - ID: {{ .Id }}
+        Host: 127.0.0.1
+        Port: {{ $w.OrdererPort . "Cluster" }}
+        MSPID: {{ ($w.Organization .Organization).MSPID}}
+        ClientTLSCert: {{ $w.OrdererLocalCryptoDir . "tls" }}/server.crt
+        ServerTLSCert: {{ $w.OrdererLocalCryptoDir . "tls" }}/server.crt
+        Identity: {{ $w.OrdererSignCert .}}
+        {{- end }}{{- end }}
+      {{- end }}
+      {{- if eq $w.Consensus.Type "BDLS" }}
+      {{- if .BDLS}}
+      BDLS:
+        Delta0Ms:                  {{ .BDLS.Delta0Ms }}
+        Delta1Ms:                  {{ .BDLS.Delta1Ms }}
+        DeltaPrime1Ms:             {{ .BDLS.DeltaPrime1Ms }}
+        Delta2Ms:                  {{ .BDLS.Delta2Ms }}
+        Delta3Ms:                  {{ .BDLS.Delta3Ms }}
+        LatencyMs:                 {{ .BDLS.LatencyMs }}
+        RequestBatchMaxCount:      {{ .BDLS.RequestBatchMaxCount }}
+        RequestBatchMaxBytesSize:  {{ .BDLS.RequestBatchMaxBytesSize }}
+        RequestBatchMaxIntervalMs: {{ .BDLS.RequestBatchMaxIntervalMs }}
+        ReliableDecide:            {{ .BDLS.ReliableDecide }}
+        DisableReliableDecide:     {{ .BDLS.DisableReliableDecide }}
+        CompactBlockState:         {{ .BDLS.CompactBlockState }}
       {{- end }}
       ConsenterMapping:{{ range $index, $orderer := .Orderers }}{{ with $w.Orderer . }}
       - ID: {{ .Id }}

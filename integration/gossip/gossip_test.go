@@ -7,16 +7,21 @@
 package gossip
 
 import (
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"syscall"
 	"time"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -39,7 +44,7 @@ var _ = Describe("Gossip State Transfer and Membership", func() {
 		testDir, err = os.MkdirTemp("", "gossip-statexfer")
 		Expect(err).NotTo(HaveOccurred())
 
-		dockerClient, err := docker.NewClientFromEnv()
+		dockerClient, err := dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		channelName = "testchannel"
@@ -121,7 +126,7 @@ var _ = Describe("Gossip State Transfer and Membership", func() {
 		By("bringing up all four peers")
 		startPeers(nwprocs, false, peer0Org1, peer1Org1, peer0Org2, peer1Org2)
 
-		channelparticipation.JoinOrdererAppChannel(network, "testchannel", orderer, nwprocs.ordererRunner)
+		nwo.JoinOrdererAppChannel(network, "testchannel", orderer, nwprocs.ordererRunner)
 
 		By("joining all peers to channel")
 		network.JoinChannel(channelName, orderer, peer0Org1, peer1Org1, peer0Org2, peer1Org2)
@@ -233,7 +238,7 @@ var _ = Describe("Gossip State Transfer and Membership", func() {
 			startPeers(nwprocs, false, peer0Org1, peer1Org1)
 
 			By("creating and joining a channel")
-			channelparticipation.JoinOrdererAppChannel(network, "testchannel", orderer, nwprocs.ordererRunner)
+			nwo.JoinOrdererAppChannel(network, "testchannel", orderer, nwprocs.ordererRunner)
 
 			network.JoinChannel(channelName, orderer, peer0Org1, peer1Org1)
 
@@ -266,7 +271,7 @@ var _ = Describe("Gossip State Transfer and Membership", func() {
 			startPeers(nwprocs, false, peer0Org1, peer1Org1, peer0Org2, peer1Org2)
 
 			By("creating and joining a channel")
-			channelparticipation.JoinOrdererAppChannel(network, "testchannel", orderer, nwprocs.ordererRunner)
+			nwo.JoinOrdererAppChannel(network, "testchannel", orderer, nwprocs.ordererRunner)
 			network.JoinChannel(channelName, orderer, peer0Org1, peer1Org1, peer0Org2, peer1Org2)
 
 			By("verifying membership on peer1Org1")
@@ -285,10 +290,166 @@ var _ = Describe("Gossip State Transfer and Membership", func() {
 			assertPeerMembershipUpdate(network, peer1Org1, []*nwo.Peer{peer0Org2, peer1Org2}, nwprocs, expectedMsgFromExpirationCallback)
 		})
 	})
+
+	It("updates membership for a peer with a renewed certificate", func() {
+		network.Bootstrap()
+		orderer := network.Orderer("orderer")
+		nwprocs.ordererRunner = network.OrdererRunner(orderer)
+		nwprocs.ordererProcess = ifrit.Invoke(nwprocs.ordererRunner)
+		Eventually(nwprocs.ordererProcess.Ready(), network.EventuallyTimeout).Should(BeClosed())
+
+		peer0Org1 := network.Peer("Org1", "peer0")
+		peer0Org2 := network.Peer("Org2", "peer0")
+
+		By("bringing up a peer in each organization")
+		startPeers(nwprocs, false, peer0Org1, peer0Org2)
+
+		nwo.JoinOrdererAppChannel(network, "testchannel", orderer, nwprocs.ordererRunner)
+
+		By("joining peers to channel")
+		network.JoinChannel(channelName, orderer, peer0Org1, peer0Org2)
+
+		By("verifying membership of both peers")
+		Eventually(nwo.DiscoverPeers(network, peer0Org1, "User1", "testchannel"), 50*time.Second, 100*time.Millisecond).Should(ContainElements(network.DiscoveredPeer(peer0Org2, "_lifecycle")))
+
+		By("stopping, renewing peer0Org2 certificate before expiration, and restarting")
+		stopPeers(nwprocs, peer0Org2)
+		renewPeerCertificate(network, peer0Org2, time.Now().Add(time.Minute))
+		startPeers(nwprocs, false, peer0Org2)
+
+		By("verifying membership after cert renewed")
+		peer0Org1Runner := nwprocs.peerRunners[peer0Org1.ID()]
+		Eventually(peer0Org1Runner.Err(), network.EventuallyTimeout).Should(gbytes.Say("Membership view has changed. peers went online"))
+		/*
+			// TODO - Replace membership log check with membership discovery check (not currently working since renewed cert signature doesn't always match expectations even though it is forced to be Low-S)
+			Eventually(
+				nwo.DiscoverPeers(network, peer0Org1, "User1", "testchannel"),
+				60*time.Second,
+				100*time.Millisecond).
+				Should(ContainElements(network.DiscoveredPeer(network.Peer("Org2", "peer0"), "_lifecycle")))
+		*/
+
+		By("waiting for cert to expire within a minute")
+		Eventually(peer0Org1Runner.Err(), time.Minute*2).Should(gbytes.Say("gossipping peer identity expired"))
+
+		By("stopping, renewing peer0Org2 certificate again after its expiration, restarting")
+		stopPeers(nwprocs, peer0Org2)
+		renewPeerCertificate(network, peer0Org2, time.Now().Add(time.Hour))
+		startPeers(nwprocs, false, peer0Org2)
+
+		By("verifying membership after cert expired and renewed again")
+		Eventually(peer0Org1Runner.Err(), network.EventuallyTimeout).Should(gbytes.Say("Membership view has changed. peers went online"))
+
+		/*
+			// TODO - Replace membership log check with membership discovery check (not currently working since renewed cert signature doesn't always match expectations even though it is forced to be Low-S)
+			Eventually(
+				nwo.DiscoverPeers(network, peer0Org1, "User1", "testchannel"),
+				60*time.Second,
+				100*time.Millisecond).
+				Should(ContainElements(network.DiscoveredPeer(network.Peer("Org2", "peer0"), "_lifecycle")))
+		*/
+	})
 })
 
+// renewPeerCertificate renews the certificate with a given expirationTime and re-writes it to the peer's signcert directory
+func renewPeerCertificate(network *nwo.Network, peer *nwo.Peer, expirationTime time.Time) {
+	peerDomain := network.Organization(peer.Organization).Domain
+
+	peerCAKeyPath := filepath.Join(network.RootDir, "crypto", "peerOrganizations", peerDomain, "ca", "priv_sk")
+	peerCAKey, err := os.ReadFile(peerCAKeyPath)
+	Expect(err).NotTo(HaveOccurred())
+
+	peerCACertPath := filepath.Join(network.RootDir, "crypto", "peerOrganizations", peerDomain, "ca", fmt.Sprintf("ca.%s-cert.pem", peerDomain))
+	peerCACert, err := os.ReadFile(peerCACertPath)
+	Expect(err).NotTo(HaveOccurred())
+
+	peerCertPath := filepath.Join(network.PeerLocalMSPDir(peer), "signcerts", fmt.Sprintf("peer0.%s-cert.pem", peerDomain))
+	peerCert, err := os.ReadFile(peerCertPath)
+	Expect(err).NotTo(HaveOccurred())
+
+	renewedCert, _ := expireCertificate(peerCert, peerCACert, peerCAKey, expirationTime)
+	err = os.WriteFile(peerCertPath, renewedCert, 0o600)
+	Expect(err).NotTo(HaveOccurred())
+}
+
+// expireCertificate re-creates and re-signs a certificate with a new expirationTime
+func expireCertificate(certPEM, caCertPEM, caKeyPEM []byte, expirationTime time.Time) (expiredcertPEM []byte, earlyMadeCACertPEM []byte) {
+	keyAsDER, _ := pem.Decode(caKeyPEM)
+	caKeyWithoutType, err := x509.ParsePKCS8PrivateKey(keyAsDER.Bytes)
+	Expect(err).NotTo(HaveOccurred())
+	caKey := caKeyWithoutType.(*ecdsa.PrivateKey)
+
+	caCertAsDER, _ := pem.Decode(caCertPEM)
+	caCert, err := x509.ParseCertificate(caCertAsDER.Bytes)
+	Expect(err).NotTo(HaveOccurred())
+
+	certAsDER, _ := pem.Decode(certPEM)
+	cert, err := x509.ParseCertificate(certAsDER.Bytes)
+	Expect(err).NotTo(HaveOccurred())
+
+	cert.Raw = nil
+	caCert.Raw = nil
+	// The certificate was made 1 minute ago (1 hour doesn't work since cert will be before original CA cert NotBefore time)
+	cert.NotBefore = time.Now().Add((-1) * time.Minute)
+	// As well as the CA certificate
+	caCert.NotBefore = time.Now().Add((-1) * time.Minute)
+	// The certificate expires now
+	cert.NotAfter = expirationTime
+
+	// The CA creates and signs a temporary certificate
+	tempCertBytes, err := x509.CreateCertificate(rand.Reader, cert, caCert, cert.PublicKey, caKey)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Force the certificate to use Low-S signature to be compatible with the identities that Fabric uses
+
+	// Parse the certificate to extract the TBS (to-be-signed) data
+	tempParsedCert, err := x509.ParseCertificate(tempCertBytes)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Hash the TBS data
+	hash := sha256.Sum256(tempParsedCert.RawTBSCertificate)
+
+	// Sign the hash using forceLowS
+	r, s, err := forceLowS(caKey, hash[:])
+	Expect(err).NotTo(HaveOccurred())
+
+	// Encode the signature (DER format)
+	signature := append(r.Bytes(), s.Bytes()...)
+
+	// Replace the signature in the certificate with the low-s signature
+	tempParsedCert.Signature = signature
+
+	// Re-encode the certificate with the low-s signature
+	certBytes, err := x509.CreateCertificate(rand.Reader, tempParsedCert, caCert, cert.PublicKey, caKey)
+	Expect(err).NotTo(HaveOccurred())
+
+	// The CA signs its own certificate
+	caCertBytes, err := x509.CreateCertificate(rand.Reader, caCert, caCert, caCert.PublicKey, caKey)
+	Expect(err).NotTo(HaveOccurred())
+
+	expiredcertPEM = pem.EncodeToMemory(&pem.Block{Bytes: certBytes, Type: "CERTIFICATE"})
+	earlyMadeCACertPEM = pem.EncodeToMemory(&pem.Block{Bytes: caCertBytes, Type: "CERTIFICATE"})
+	return
+}
+
+// forceLowS ensures the ECDSA signature's S value is low
+func forceLowS(priv *ecdsa.PrivateKey, hash []byte) (r, s *big.Int, err error) {
+	r, s, err = ecdsa.Sign(rand.Reader, priv, hash)
+	Expect(err).NotTo(HaveOccurred())
+
+	curveOrder := priv.Curve.Params().N
+	halfOrder := new(big.Int).Rsh(curveOrder, 1) // curveOrder / 2
+
+	// If s is greater than half the order, replace it with curveOrder - s
+	if s.Cmp(halfOrder) > 0 {
+		s.Sub(curveOrder, s)
+	}
+
+	return r, s, nil
+}
+
 func runTransactions(n *nwo.Network, orderer *nwo.Orderer, peer *nwo.Peer, chaincodeName string, channelID string) {
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		sess, err := n.PeerUserSession(peer, "User1", commands.ChaincodeInvoke{
 			ChannelID: channelID,
 			Orderer:   n.OrdererAddress(orderer, nwo.ListenPort),
@@ -364,7 +525,7 @@ func assertPeersLedgerHeight(n *nwo.Network, peersToSyncUp []*nwo.Peer, expected
 	}
 }
 
-// send transactions, stop orderering server, then start peers to ensure they received blcoks via state transfer
+// send transactions, stop orderering server, then start peers to ensure they received blocks via state transfer
 func sendTransactionsAndSyncUpPeers(n *networkProcesses, orderer *nwo.Orderer, basePeer *nwo.Peer, channelName string, peersToSyncUp ...*nwo.Peer) {
 	By("creating transactions")
 	runTransactions(n.network, orderer, basePeer, "mycc", channelName)

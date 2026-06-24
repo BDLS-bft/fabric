@@ -19,11 +19,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/prometheus"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/statsd"
 	"github.com/hyperledger/fabric-lib-go/healthz"
 	"github.com/hyperledger/fabric/common/fabhttp"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
-	"github.com/hyperledger/fabric/common/metrics/prometheus"
-	"github.com/hyperledger/fabric/common/metrics/statsd"
 	"github.com/hyperledger/fabric/core/operations"
 	"github.com/hyperledger/fabric/core/operations/fakes"
 	. "github.com/onsi/ginkgo/v2"
@@ -243,7 +243,7 @@ var _ = Describe("System", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(fakeLogger.WarnCallCount()).To(Equal(1))
-		Expect(fakeLogger.WarnArgsForCall(0)).To(Equal([]interface{}{"key", "value"}))
+		Expect(fakeLogger.WarnArgsForCall(0)).To(Equal([]any{"key", "value"}))
 	})
 
 	Context("when a logger is not provided", func() {
@@ -449,7 +449,7 @@ var _ = Describe("System", func() {
 			Expect(fakeLogger.WarnfCallCount()).To(Equal(1))
 			msg, args := fakeLogger.WarnfArgsForCall(0)
 			Expect(msg).To(Equal("Unknown provider type: %s; metrics disabled"))
-			Expect(args).To(Equal([]interface{}{"something-unknown"}))
+			Expect(args).To(Equal([]any{"something-unknown"}))
 		})
 	})
 

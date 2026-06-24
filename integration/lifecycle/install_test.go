@@ -11,11 +11,10 @@ import (
 	"path/filepath"
 	"syscall"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	"github.com/hyperledger/fabric/integration/nwo/fabricconfig"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -26,7 +25,7 @@ import (
 
 var _ = Describe("chaincode install", func() {
 	var (
-		client  *docker.Client
+		client  dcli.APIClient
 		testDir string
 
 		network                     *nwo.Network
@@ -39,7 +38,7 @@ var _ = Describe("chaincode install", func() {
 		testDir, err = os.MkdirTemp("", "lifecycle")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		cwd, err := os.Getwd()
@@ -87,7 +86,7 @@ var _ = Describe("chaincode install", func() {
 			orderer = network.Orderer("orderer")
 			org1Peer = network.Peer("Org1", "peer0")
 			org2Peer = network.Peer("Org2", "peer0")
-			channelparticipation.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
+			nwo.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
 
 			chaincode = nwo.Chaincode{
 				Name:            "failure-external",
@@ -102,25 +101,6 @@ var _ = Describe("chaincode install", func() {
 				Label:           "failure-external",
 				PackageFile:     filepath.Join(packageTempDir, "chaincode-package"),
 			}
-		})
-
-		It("legacy does not fallback to internal platforms", func() {
-			By("packaging the chaincode using the legacy lifecycle")
-			nwo.PackageChaincodeLegacy(network, chaincode, org1Peer)
-
-			By("installing the chaincode using the legacy lifecycle")
-			sess, err := network.PeerAdminSession(org1Peer, commands.ChaincodeInstallLegacy{
-				Name:        chaincode.Name,
-				Version:     chaincode.Version,
-				Path:        chaincode.Path,
-				Lang:        chaincode.Lang,
-				PackageFile: chaincode.PackageFile,
-				ClientAuth:  network.ClientAuthRequired,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(1))
-
-			Expect(sess.Err).To(gbytes.Say(`\Qexternal builder 'external-golang' failed: exit status 1\E`))
 		})
 
 		It("_lifecycle does not fallback to internal platforms when an external builder fails", func() {

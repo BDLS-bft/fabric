@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/ledger/util/leveldbhelper"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestSystemNamespaceIsEmptyString(t *testing.T) {
@@ -438,7 +438,7 @@ func populateTestStore(t *testing.T, store *Store) {
 	samplePvtSimResWithConfig := samplePvtDataWithConfigInfo(t)
 	testTxid := "testTxid"
 	numEntries := 5
-	for i := 0; i < numEntries; i++ {
+	for i := range numEntries {
 		require.NoError(t, store.Persist(testTxid, uint64(i), samplePvtSimResWithConfig))
 	}
 }

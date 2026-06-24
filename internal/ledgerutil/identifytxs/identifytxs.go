@@ -13,9 +13,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/ledger/blkstorage"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
 	"github.com/hyperledger/fabric/core/ledger/kvledger"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/rwsetutil"
 	"github.com/hyperledger/fabric/internal/fileutil"
@@ -231,7 +231,7 @@ func generateRecordsMap(records []*models.DiffRecord, outputDirPath string) (ckm
 		if err != nil {
 			return nil, err
 		}
-		var emptySlice []interface{}
+		var emptySlice []any
 		err = ofw.AddField("txs", emptySlice)
 		if err != nil {
 			return nil, err

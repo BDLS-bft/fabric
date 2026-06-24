@@ -33,7 +33,7 @@ func TestRedoLogger(t *testing.T) {
 	}
 
 	// write log records for multiple channels
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		logger := provider.newRedoLogger(fmt.Sprintf("channel-%d", i))
 		rec, err := logger.load()
 		require.NoError(t, err)
@@ -72,7 +72,8 @@ func TestCouchdbRedoLogger(t *testing.T) {
 		db, err := vdbEnv.DBProvider.GetDBHandle("testcouchdbredologger", nil)
 		require.NoError(t, err)
 		vdb := db.(*VersionedDB)
-		require.NoError(t,
+		require.NoError(
+			t,
 			vdb.redoLogger.persist(
 				&redoRecord{
 					UpdateBatch: batch,

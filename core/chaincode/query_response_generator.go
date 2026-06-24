@@ -7,9 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 package chaincode
 
 import (
-	"github.com/golang/protobuf/proto"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	commonledger "github.com/hyperledger/fabric/common/ledger"
+	"google.golang.org/protobuf/proto"
 )
 
 type QueryResponseGenerator struct {
@@ -18,7 +18,8 @@ type QueryResponseGenerator struct {
 
 // BuildQueryResponse takes an iterator and fetch state to construct QueryResponse
 func (q *QueryResponseGenerator) BuildQueryResponse(txContext *TransactionContext, iter commonledger.ResultsIterator,
-	iterID string, isPaginated bool, totalReturnLimit int32) (*pb.QueryResponse, error) {
+	iterID string, isPaginated bool, totalReturnLimit int32,
+) (*pb.QueryResponse, error) {
 	pendingQueryResults := txContext.GetPendingQueryResult(iterID)
 	totalReturnCount := txContext.GetTotalReturnCount(iterID)
 

@@ -24,9 +24,7 @@ current main branch, it is possible that you will encounter errors.
 
 Before you can run the test network, you need to install Fabric Samples in your
 environment. Follow the instructions on [getting_started](getting_started.html)
-to install the required software.
-
-**Note:** The test network has been successfully verified with Docker Desktop version 2.5.0.1 and is the recommended version at this time. Higher versions may not work.
+to install the required software. If you are using a Linux distribution with SELinux enabled you need to add a small change to the Docker/Podman compose files described in the [SELinux section](#selinux) below.
 
 ## Bring up the test network
 
@@ -113,9 +111,7 @@ Creating volume "net_peer0.org2.example.com" with default driver
 Creating peer0.org2.example.com ... done
 Creating orderer.example.com    ... done
 Creating peer0.org1.example.com ... done
-Creating cli                    ... done
 CONTAINER ID   IMAGE                               COMMAND             CREATED         STATUS                  PORTS                                            NAMES
-1667543b5634   hyperledger/fabric-tools:latest     "/bin/bash"         1 second ago    Up Less than a second                                                    cli
 b6b117c81c7f   hyperledger/fabric-peer:latest      "peer node start"   2 seconds ago   Up 1 second             0.0.0.0:7051->7051/tcp                           peer0.org1.example.com
 703ead770e05   hyperledger/fabric-orderer:latest   "orderer"           2 seconds ago   Up Less than a second   0.0.0.0:7050->7050/tcp, 0.0.0.0:7053->7053/tcp   orderer.example.com
 718d43f5f312   hyperledger/fabric-peer:latest      "peer node start"   2 seconds ago   Up 1 second             7051/tcp, 0.0.0.0:9051->9051/tcp                 peer0.org2.example.com
@@ -290,7 +286,7 @@ You can now set the environment variables that allow you to operate the `peer`
 # Environment variables for Org1
 
 export CORE_PEER_TLS_ENABLED=true
-export CORE_PEER_LOCALMSPID="Org1MSP"
+export CORE_PEER_LOCALMSPID=Org1MSP
 export CORE_PEER_TLS_ROOTCERT_FILE=${PWD}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
 export CORE_PEER_MSPCONFIGPATH=${PWD}/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp
 export CORE_PEER_ADDRESS=localhost:7051
@@ -347,7 +343,7 @@ peer. Set the following environment variables to operate as Org2:
 # Environment variables for Org2
 
 export CORE_PEER_TLS_ENABLED=true
-export CORE_PEER_LOCALMSPID="Org2MSP"
+export CORE_PEER_LOCALMSPID=Org2MSP
 export CORE_PEER_TLS_ROOTCERT_FILE=${PWD}/organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt
 export CORE_PEER_MSPCONFIGPATH=${PWD}/organizations/peerOrganizations/org2.example.com/users/Admin@org2.example.com/msp
 export CORE_PEER_ADDRESS=localhost:9051
@@ -535,7 +531,7 @@ below provide a guided tour of what happens when you issue the command of
 - If you use the `createChannel` subcommand, `./network.sh` runs the
   `createChannel.sh` script in the `scripts` folder to create a channel
   using the supplied channel name. The script uses the `configtxgen` tool to create the channel genesis block
-  based on the `TwoOrgsApplicationGenesis` channel profile in the `configtx/configtx.yaml` file. After creating the channel, the script uses the peer cli to join ``peer0.org1.example.com`` and ``peer0.org2.example.com`` to the channel, and make both of the peers anchor peers.
+  based on the `ChannelUsingRaft` channel profile in the `configtx/configtx.yaml` file. After creating the channel, the script uses the peer cli to join ``peer0.org1.example.com`` and ``peer0.org2.example.com`` to the channel, and make both of the peers anchor peers.
 
 - If you issue the `deployCC` command, `./network.sh` runs the ``deployCC.sh``
   script to install the **asset-transfer (basic)** chaincode on both peers and then define then
@@ -579,9 +575,82 @@ For example:
 
 To understand more about the BFT ordering service, refer to the following information:
 
-- [What is BFT and what is BFT Ordering service?](./orderer/ordering_service.md)
-- [Adding orderer to an existing network](./create_channel/add_orderer.md)
-- [Configuring and operating a BFT ordering service](./bft_configuration.md)
+- [What is BFT and what is BFT Ordering service?](./orderer/ordering_service.html)
+- [Adding orderer to an existing network](./create_channel/add_orderer.html)
+- [Configuring and operating a BFT ordering service](./bft_configuration.html)
+
+## SELinux
+
+To use the test-network on Linux distributions where SELinux is enabled like Fedora or RHEL you need to modify the Docker/Podman compose files or you will run into permission issues with volumes and access to the Docker socket when building the Chaincode container.
+
+Resolve the volume permission issues by adding a `:z` to the end of the line in the volume entries shown in:
+- `test-network/compose/compose-ca.yaml`,
+- `test-network/compose/compose-test-net.yaml`,
+- `test-network/compose/docker/docker-compose-test-net.yaml` in case you use Docker
+- OR `test-network/compose/podman/podman-compose-test-net.yaml` in case you use Podman.
+
+```yaml
+# test-network/compose/compose-ca.yaml
+# ca_org1 container
+    volumes:
+      - ../organizations/fabric-ca/org1:/etc/hyperledger/fabric-ca-server:z
+
+# ca_org2 container
+    volumes:
+      - ../organizations/fabric-ca/org2:/etc/hyperledger/fabric-ca-server:z
+
+# ca_orderer container
+    volumes:
+      - ../organizations/fabric-ca/ordererOrg:/etc/hyperledger/fabric-ca-server:z
+
+# test-network/compose/compose-test-net.yaml
+# Orderer container
+    volumes:
+        - ../organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp:/var/hyperledger/orderer/msp:z
+        - ../organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/:/var/hyperledger/orderer/tls:z
+
+# PeerOrg1 container
+    volumes:
+        - ../organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com:/etc/hyperledger/fabric:z
+
+# PeerOrg2 container
+     volumes:
+        - ../organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com:/etc/hyperledger/fabric:z
+
+# test-network/compose/docker/docker-compose-test-net.yaml
+# PeerOrg1 container
+    volumes:
+        - ./docker/peercfg:/etc/hyperledger/peercfg:z
+
+# PeerOrg2 container
+    volumes:
+        - ./docker/peercfg:/etc/hyperledger/peercfg:z
+```
+
+Resolve the issue with forbidden access to the Docker socket by either using Chaincode-as-a-Service or opting out of SELinux enforcement for the peer containers. You can do the latter by adding `:z` to Docker socket volume entries and disabling the security options in `test-network/compose/docker/docker-compose-test-net.yaml`:
+
+```yaml
+# test-network/compose/docker/docker-compose-test-net.yaml
+# PeerOrg1 container
+    volumes:
+        - ${DOCKER_SOCK}:/host/var/run/docker.sock:z
+    security_opt:
+        - label:disable
+
+# PeerOrg2 container
+    volumes:
+        - ${DOCKER_SOCK}:/host/var/run/docker.sock:z
+    security_opt:
+        - label:disable
+```
+
+### BFT ordering service on SELinux
+
+If you want to start the test-network with the BFT ordering service on a Linux distribution with SELinux enabled you have to perform the changes listed above in the compose files with `*-bft-test-net.yaml` in their names instead of `*-test-net.yaml`:
+- `test-network/compose/compose-ca.yaml`,
+- `test-network/compose/compose-bft-test-net.yaml`,
+- `test-network/compose/docker/docker-compose-bft-test-net.yaml` in case you use Docker
+- OR `test-network/compose/podman/podman-compose-bft-test-net.yaml` in case you use Podman.
 
 ## Troubleshooting
 
@@ -614,7 +683,7 @@ If you have any problems with the tutorial, review the following:
    Deploying chaincode failed
    ```
 
-   This problem is caused by a newer version of Docker Desktop for macOS. To resolve this issue, in the Docker Desktop preferences, uncheck the box `Use gRPC FUSE for file sharing` to use the legacy osxfs file sharing instead and click **Apply & Restart**.
+   This problem may be caused by Docker Desktop file sharing setting `gRPC FUSE`, select a different file sharing implementation.
 
 -  If you see errors on your create, approve, commit, invoke or query commands,
    make sure you have properly updated the channel name and chaincode name.
@@ -658,17 +727,6 @@ If you have any problems with the tutorial, review the following:
    ```
    Select ``y``.
 
--  If you try to create a channel with the command `./network.sh createChannel`,
-   and it fails with the following error:
-   ```
-   [comm.tls] ClientHandshake -> ERRO 003 Client TLS handshake failed after 1.908956ms with error: EOF remoteaddress=127.0.0.1:7051
-   Error: error getting endorser client for channel: endorser client failed to connect to localhost:7051: failed to create new connection: context deadline exceeded
-   After 5 attempts, peer0.org1 has failed to join channel 'mychannel'
-   ```
-
-   You need to uninstall Docker Desktop and reinstall the recommended version 2.5.0.1. Then, reclone the `fabric-samples`
-   repository before reattempting the commands.
-
 -  If you see an error similar to the following:
    ```
    /bin/bash: ./scripts/createChannel.sh: /bin/bash^M: bad interpreter: No such file or directory
@@ -687,6 +745,25 @@ If you have any problems with the tutorial, review the following:
    ```
    :set ff=unix
    ```
+
+- If you are running on a Linux distribution with SELinux enabled like Fedora or RHEL and your test-network peer and orderer containers keep crashing with the following errors:
+  ```bash
+  # peer 1 & 2
+  ERRO [main] InitCmd -> Fatal error when initializing core config : error when reading core config file: Config File "core" Not Found in "[/etc/hyperledger/peercfg]"
+
+  # orderer
+  PANI [orderer.common.server] loadLocalMSP -> Failed to get local msp config: could not initialize BCCSP Factories: Failed initializing BCCSP: Could not initialize BCCSP SW [Failed to initialize software key store: open /var/hyperledger/orderer/msp/keystore: permission denied]
+  ```
+  Read the [SELinux section](#selinux) above.
+
+- If you are running on a Linux distribution with SELinux enabled like Fedora or RHEL and you can not install a chaincode on your test-network with the following error:
+  ```bash
+  Error: chaincode install failed with status: 500 - failed to invoke backing implementation of 'InstallChaincode': could not build chaincode: docker build failed: docker image inspection failed: Get "http://unix.sock/images/dev-peer0.org1.example.com-basic_1.0-c6a45e2d5563c883869149c3dbd941c22fbe27daa21f0552834f5a53fbb8058a-fe69b7bdc0bbe5769bbff0572aa6986343c77b61c84077999a9b65f29c5c0025/json": dial unix /host/var/run/docker.sock: connect: permission denied
+  Chaincode installation on peer0.org1 has failed
+  Deploying chaincode failed
+  ```
+
+  Read the [SELinux section](#selinux) above.
 
 If you continue to see errors, share your logs on one of the Fabric [Discord channels](https://discord.com/invite/hyperledger) or on
 [StackOverflow](https://stackoverflow.com/questions/tagged/hyperledger-fabric).

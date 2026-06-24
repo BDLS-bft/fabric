@@ -10,7 +10,7 @@ import (
 	"io"
 	"os"
 
-	pb "github.com/hyperledger/fabric-protos-go/peer"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/core/chaincode/persistence"
 	"github.com/hyperledger/fabric/core/chaincode/persistence/mock"
 	. "github.com/onsi/ginkgo/v2"
@@ -80,7 +80,8 @@ var _ = Describe("FallbackPackageLocator", func() {
 						},
 						CodePackage: []byte("legacy-code"),
 					},
-					nil)
+					nil,
+				)
 			})
 
 			It("falls back to the legacy retriever", func() {

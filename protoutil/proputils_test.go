@@ -14,15 +14,15 @@ import (
 	"os"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/msp"
 	mspmgmt "github.com/hyperledger/fabric/msp/mgmt"
 	msptesttools "github.com/hyperledger/fabric/msp/mgmt/testtools"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func createCIS() *pb.ChaincodeInvocationSpec {
@@ -88,7 +88,8 @@ func TestProposal(t *testing.T) {
 		common.HeaderType_ENDORSER_TRANSACTION,
 		testChannelID, createCIS(),
 		[]byte("creator"),
-		map[string][]byte{"certx": []byte("transient")})
+		map[string][]byte{"certx": []byte("transient")},
+	)
 	if err != nil {
 		t.Fatalf("Could not create chaincode proposal, err %s\n", err)
 		return
@@ -370,7 +371,7 @@ func TestEnvelope(t *testing.T) {
 	}
 
 	if act2.Response.Status != response.Status {
-		t.Fatalf("response staus don't match")
+		t.Fatalf("response status don't match")
 		return
 	}
 	if !bytes.Equal(act2.Response.Payload, response.Payload) {
@@ -426,7 +427,7 @@ func TestEnvelope(t *testing.T) {
 	}
 
 	if ca.Response.Status != response.Status {
-		t.Fatalf("response staus don't match")
+		t.Fatalf("response status don't match")
 		return
 	}
 	if !bytes.Equal(ca.Response.Payload, response.Payload) {

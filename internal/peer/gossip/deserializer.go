@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package gossip
 
 import (
-	mspproto "github.com/hyperledger/fabric-protos-go/msp"
+	mspproto "github.com/hyperledger/fabric-protos-go-apiv2/msp"
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/protoutil"
@@ -16,7 +16,6 @@ import (
 // DeserializersManager is a support interface to
 // access the local and channel deserializers
 type DeserializersManager interface {
-
 	// Deserialize receives SerializedIdentity bytes and returns the unmarshaled form
 	// of the SerializedIdentity, or error on failure
 	Deserialize(raw []byte) (*mspproto.SerializedIdentity, error)

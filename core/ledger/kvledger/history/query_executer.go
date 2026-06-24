@@ -7,8 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package history
 
 import (
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/ledger/queryresult"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/queryresult"
 	commonledger "github.com/hyperledger/fabric/common/ledger"
 	"github.com/hyperledger/fabric/common/ledger/blkstorage"
 	"github.com/hyperledger/fabric/common/ledger/util/leveldbhelper"
@@ -92,7 +92,7 @@ func (scanner *historyScanner) Close() {
 	scanner.dbItr.Release()
 }
 
-// getTxIDandKeyWriteValueFromTran inspects a transaction for writes to a given key
+// getKeyModificationFromTran inspects a transaction for writes to a given key
 func getKeyModificationFromTran(tranEnvelope *common.Envelope, namespace string, key string) (commonledger.QueryResult, error) {
 	logger.Debugf("Entering getKeyModificationFromTran %s:%s", namespace, key)
 

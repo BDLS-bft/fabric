@@ -9,7 +9,7 @@ package stateleveldb
 import (
 	"bytes"
 
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
 	"github.com/hyperledger/fabric/common/ledger/dataformat"
 	"github.com/hyperledger/fabric/common/ledger/util/leveldbhelper"
 	"github.com/hyperledger/fabric/core/ledger/internal/version"
@@ -41,7 +41,8 @@ func NewVersionedDBProvider(dbPath string) (*VersionedDBProvider, error) {
 		&leveldbhelper.Conf{
 			DBPath:         dbPath,
 			ExpectedFormat: dataformat.CurrentFormat,
-		})
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

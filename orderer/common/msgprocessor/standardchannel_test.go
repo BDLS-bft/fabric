@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"testing"
 
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/orderer"
-	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/orderer/common/msgprocessor/mocks"
@@ -203,6 +203,7 @@ func TestProcessConfigMsg(t *testing.T) {
 			t,
 			int32(cb.HeaderType_CONFIG),
 			hdr.Type,
-			"Expect type of returned envelope to be %d, but got %d", cb.HeaderType_CONFIG, hdr.Type)
+			"Expect type of returned envelope to be %d, but got %d", cb.HeaderType_CONFIG, hdr.Type,
+		)
 	})
 }

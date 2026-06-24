@@ -8,18 +8,18 @@ package discovery
 
 import (
 	"context"
+	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
-	"math/rand"
-	"time"
+	"math/rand/v2"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/discovery"
-	"github.com/hyperledger/fabric-protos-go/msp"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/discovery"
+	"github.com/hyperledger/fabric-protos-go-apiv2/msp"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/discovery/protoext"
 	gprotoext "github.com/hyperledger/fabric/gossip/protoext"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 var configTypes = []protoext.QueryType{
@@ -157,9 +157,9 @@ func (req *Request) addQueryMapping(queryType protoext.QueryType, key string) {
 
 // Send sends the request and returns the response, or error on failure
 func (c *Client) Send(ctx context.Context, req *Request, auth *discovery.AuthInfo) (Response, error) {
-	reqToBeSent := *req.Request
+	reqToBeSent := proto.Clone(req.Request).(*discovery.Request)
 	reqToBeSent.Authentication = auth
-	payload, err := proto.Marshal(&reqToBeSent)
+	payload, err := proto.Marshal(reqToBeSent)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed marshaling Request to bytes")
 	}
@@ -188,7 +188,7 @@ func (c *Client) Send(ctx context.Context, req *Request, auth *discovery.AuthInf
 	return req.computeResponse(resp)
 }
 
-type resultOrError interface{}
+type resultOrError any
 
 type response map[key]resultOrError
 
@@ -266,7 +266,9 @@ func (cr *channelResponse) Endorsers(invocationChain InvocationChain, f Filter) 
 	}
 
 	desc := res.(*endorsementDescriptor)
-	r := rand.New(rand.NewSource(time.Now().Unix()))
+	var seed [32]byte
+	_, _ = crand.Read(seed[:])
+	r := rand.New(rand.NewChaCha8(seed))
 	// We iterate over all layouts to find one that we have enough peers to select
 	for _, index := range r.Perm(len(desc.layouts)) {
 		layout := desc.layouts[index]
@@ -446,7 +448,8 @@ func isStateInfoExpected(qt protoext.QueryType) bool {
 func (resp response) mapEndorsers(
 	channel2index map[string]int,
 	r *discovery.Response,
-	chaincodeQueryMapping map[int][]InvocationChain) error {
+	chaincodeQueryMapping map[int][]InvocationChain,
+) error {
 	for ch, index := range channel2index {
 		ccQueryRes, err := protoext.ResponseEndorsersAt(r, index)
 		if ccQueryRes == nil && err == nil {

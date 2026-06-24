@@ -18,8 +18,8 @@ import (
 	"regexp"
 	"strings"
 
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/core/chaincode/platforms/util"
 )
 
@@ -45,7 +45,7 @@ func (p *Platform) Name() string {
 	return pb.ChaincodeSpec_NODE.String()
 }
 
-// ValidateSpec validates Go chaincodes
+// ValidatePath validates Go chaincodes
 func (p *Platform) ValidatePath(rawPath string) error {
 	path, err := url.Parse(rawPath)
 	if err != nil || path == nil {
@@ -182,7 +182,7 @@ else
 fi
 `
 
-func (p *Platform) DockerBuildOptions(path string) (util.DockerBuildOptions, error) {
+func (p *Platform) DockerBuildOptions(string, string, string, string) (util.DockerBuildOptions, error) {
 	return util.DockerBuildOptions{
 		Image: util.GetDockerImageFromConfig("chaincode.node.runtime"),
 		Cmd:   buildScript,

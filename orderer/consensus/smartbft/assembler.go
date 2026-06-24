@@ -10,9 +10,9 @@ import (
 	"encoding/asn1"
 	"sync/atomic"
 
-	"github.com/SmartBFT-Go/consensus/pkg/types"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger-labs/SmartBFT/pkg/types"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
@@ -32,9 +32,10 @@ type Ledger interface {
 
 // Assembler is the proposal assembler
 type Assembler struct {
-	RuntimeConfig   *atomic.Value
-	Logger          *flogging.FabricLogger
-	VerificationSeq func() uint64
+	RuntimeConfig     *atomic.Value
+	Logger            *flogging.FabricLogger
+	VerificationSeq   func() uint64
+	ProposalAssembled func(blockNumber uint64)
 }
 
 // AssembleProposal assembles a proposal from the metadata and the request
@@ -79,6 +80,10 @@ func (a *Assembler) AssembleProposal(metadata []byte, requests [][]byte) (nextPr
 		Payload:              tuple.ToBytes(),
 		Metadata:             metadata,
 		VerificationSequence: int64(a.VerificationSeq()),
+	}
+
+	if a.ProposalAssembled != nil {
+		a.ProposalAssembled(block.Header.Number)
 	}
 
 	return prop

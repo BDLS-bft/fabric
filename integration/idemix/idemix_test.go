@@ -11,10 +11,9 @@ import (
 	"path/filepath"
 	"syscall"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -26,7 +25,7 @@ import (
 var _ = Describe("EndToEnd", func() {
 	var (
 		testDir                     string
-		client                      *docker.Client
+		client                      dcli.APIClient
 		network                     *nwo.Network
 		chaincode                   nwo.Chaincode
 		ordererRunner               *ginkgomon.Runner
@@ -38,7 +37,7 @@ var _ = Describe("EndToEnd", func() {
 		testDir, err = os.MkdirTemp("", "idemix_e2e")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		chaincode = nwo.Chaincode{
@@ -86,7 +85,7 @@ var _ = Describe("EndToEnd", func() {
 			orderer := network.Orderer("orderer")
 
 			By("setting up the channel")
-			channelparticipation.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
+			nwo.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
 			nwo.EnableCapabilities(network, "testchannel", "Application", "V2_0", orderer, network.Peer("Org1", "peer0"), network.Peer("Org2", "peer0"))
 
 			By("deploying the chaincode")

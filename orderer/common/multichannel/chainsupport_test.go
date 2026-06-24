@@ -9,8 +9,8 @@ package multichannel
 import (
 	"testing"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	msgprocessormocks "github.com/hyperledger/fabric/orderer/common/msgprocessor/mocks"
 	"github.com/hyperledger/fabric/orderer/common/multichannel/mocks"
 	"github.com/pkg/errors"
@@ -28,6 +28,12 @@ func TestConsensusMetadataValidation(t *testing.T) {
 	mockResources := &mocks.Resources{}
 	mockResources.ConfigtxValidatorReturns(mockValidator)
 	mockResources.OrdererConfigReturns(mockOrderer, true)
+	mockChannelConfig := &mocks.ChannelConfig{}
+	mockChannelConfig.OrdererAddressesReturns([]string{"127.0.0.1"})
+	mockChannelCapabilities := &mocks.ChannelCapabilities{}
+	mockChannelCapabilities.ConsensusTypeBFTReturns(true)
+	mockChannelConfig.CapabilitiesReturns(mockChannelCapabilities)
+	mockResources.ChannelConfigReturns(mockChannelConfig)
 
 	ms := &mutableResourcesMock{
 		Resources:               mockResources,
@@ -62,4 +68,42 @@ func TestConsensusMetadataValidation(t *testing.T) {
 	mv.ValidateConsensusMetadataReturns(errors.New("bananas"))
 	_, err = cs.ProposeConfigUpdate(&common.Envelope{})
 	require.EqualError(t, err, "consensus metadata update for channel config update is invalid: bananas")
+}
+
+func TestBundleValidation(t *testing.T) {
+	mockValidator := &mocks.ConfigTXValidator{}
+	mockValidator.ChannelIDReturns("mychannel")
+	mockValidator.ProposeConfigUpdateReturns(testConfigEnvelope(t), nil)
+
+	mockResources := &mocks.Resources{}
+	mockResources.ConfigtxValidatorReturns(mockValidator)
+
+	mockChannelConfig := &mocks.ChannelConfig{}
+	mockChannelConfig.OrdererAddressesReturns([]string{"127.0.0.1"})
+
+	mockChannelCapabilities := &mocks.ChannelCapabilities{}
+	mockChannelCapabilities.ConsensusTypeBFTReturns(true)
+	mockChannelConfig.CapabilitiesReturns(mockChannelCapabilities)
+	mockResources.ChannelConfigReturns(mockChannelConfig)
+
+	mockNewResources := &mutableResourcesMock{
+		Resources: mockResources,
+	}
+	mockNewResources.ValidateNewReturns(errors.New("new config is bad"))
+
+	cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
+	require.NoError(t, err)
+
+	cs := &ChainSupport{
+		ledgerResources: &ledgerResources{
+			configResources: &configResources{
+				mutableResources: mockNewResources,
+				bccsp:            cryptoProvider,
+			},
+		},
+		BCCSP: cryptoProvider,
+	}
+
+	_, err = cs.ProposeConfigUpdate(&common.Envelope{})
+	require.EqualError(t, err, "new config is bad")
 }

@@ -9,19 +9,19 @@ package ccprovider
 import (
 	"archive/tar"
 	"bytes"
-	"fmt"
+	"errors"
 	"io"
 	"path/filepath"
 	"strings"
 )
 
-// tarFileEntry encapsulates a file entry and it's contents inside a tar
+// TarFileEntry encapsulates a file entry and it's contents inside a tar
 type TarFileEntry struct {
 	FileHeader  *tar.Header
 	FileContent []byte
 }
 
-// ExtractStatedbArtifactsAsTarbytes extracts the statedb artifacts from the code package tar and create a statedb artifact tar.
+// ExtractStatedbArtifactsForChaincode extracts the statedb artifacts from the code package tar and create a statedb artifact tar.
 // The state db artifacts are expected to contain state db specific artifacts such as index specification in the case of couchdb.
 // This function is intended to be used during chaincode instantiate/upgrade so that statedb artifacts can be created.
 func ExtractStatedbArtifactsForChaincode(ccNameVersion string) (installed bool, statedbArtifactsTar []byte, err error) {
@@ -47,7 +47,7 @@ func ExtractStatedbArtifactsFromCCPackage(ccpackage CCPackage) (statedbArtifacts
 	metaprov, err := MetadataAsTarEntries(cds.CodePackage)
 	if err != nil {
 		ccproviderLogger.Infof("invalid deployment spec: %s", err)
-		return nil, fmt.Errorf("invalid deployment spec")
+		return nil, errors.New("invalid deployment spec")
 	}
 	return metaprov, nil
 }

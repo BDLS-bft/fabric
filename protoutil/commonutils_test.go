@@ -11,12 +11,12 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/protoutil/fakes"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:generate counterfeiter -o fakes/signer_serializer.go --fake-name SignerSerializer . signerSerializer
@@ -329,7 +329,8 @@ func testPayload() *cb.Payload {
 	return &cb.Payload{
 		Header: MakePayloadHeader(
 			MakeChannelHeader(cb.HeaderType_MESSAGE, int32(1), "test", 0),
-			MakeSignatureHeader([]byte("creator"), []byte("nonce"))),
+			MakeSignatureHeader([]byte("creator"), []byte("nonce")),
+		),
 		Data: []byte("test"),
 	}
 }
@@ -461,7 +462,7 @@ func TestEnvelopeToConfigUpdate(t *testing.T) {
 	result, err := EnvelopeToConfigUpdate(env)
 
 	require.NoError(t, err, "EnvelopeToConfigUpdate runs without error for valid CONFIG_UPDATE envelope")
-	require.Equal(t, configUpdateEnv, result, "Correct configUpdateEnvelope returned")
+	require.True(t, proto.Equal(configUpdateEnv, result), "Correct configUpdateEnvelope returned")
 
 	// scenario 2: for invalid envelopes
 	env = makeEnv([]byte("test bytes"))

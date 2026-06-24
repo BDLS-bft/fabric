@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Uber Technologies, Inc.
+// Copyright (c) 2016-2022 Uber Technologies, Inc.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap/internal"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -50,9 +51,7 @@ func (o *ObservedLogs) Len() int {
 func (o *ObservedLogs) All() []LoggedEntry {
 	o.mu.RLock()
 	ret := make([]LoggedEntry, len(o.logs))
-	for i := range o.logs {
-		ret[i] = o.logs[i]
-	}
+	copy(ret, o.logs)
 	o.mu.RUnlock()
 	return ret
 }
@@ -89,6 +88,13 @@ func (o *ObservedLogs) FilterLevelExact(level zapcore.Level) *ObservedLogs {
 func (o *ObservedLogs) FilterMessage(msg string) *ObservedLogs {
 	return o.Filter(func(e LoggedEntry) bool {
 		return e.Message == msg
+	})
+}
+
+// FilterLoggerName filters entries to those logged through logger with the specified logger name.
+func (o *ObservedLogs) FilterLoggerName(name string) *ObservedLogs {
+	return o.Filter(func(e LoggedEntry) bool {
+		return e.LoggerName == name
 	})
 }
 
@@ -158,6 +164,15 @@ type contextObserver struct {
 	zapcore.LevelEnabler
 	logs    *ObservedLogs
 	context []zapcore.Field
+}
+
+var (
+	_ zapcore.Core            = (*contextObserver)(nil)
+	_ internal.LeveledEnabler = (*contextObserver)(nil)
+)
+
+func (co *contextObserver) Level() zapcore.Level {
+	return zapcore.LevelOf(co.LevelEnabler)
 }
 
 func (co *contextObserver) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
