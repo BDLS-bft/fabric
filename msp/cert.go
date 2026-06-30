@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /*
 Copyright IBM Corp. 2017 All Rights Reserved.
 
@@ -27,7 +29,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/hyperledger/fabric/bccsp/utils"
+	"github.com/hyperledger/fabric-lib-go/bccsp/utils"
 	"github.com/pkg/errors"
 )
 

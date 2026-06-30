@@ -15,8 +15,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -24,6 +23,7 @@ import (
 	"github.com/onsi/gomega/gstruct"
 	"github.com/onsi/gomega/types"
 	ginkgomon "github.com/tedsuo/ifrit/ginkgomon_v2"
+	"google.golang.org/protobuf/proto"
 )
 
 func Join(n *nwo.Network, o *nwo.Orderer, channel string, block *common.Block, expectedChannelInfo ChannelInfo) {
@@ -197,7 +197,8 @@ func JoinOrdererJoinPeersAppChannel(network *nwo.Network, channelID string, orde
 
 	ginkgo.By(fmt.Sprintf("waiting for leader on channel %s", channelID))
 	Eventually(ordererRunner.Err(), network.EventuallyTimeout, time.Second).Should(
-		gbytes.Say(fmt.Sprintf("Raft leader changed: 0 -> 1 channel=%s node=1", channelID)))
+		gbytes.Say(fmt.Sprintf("Raft leader changed: 0 -> 1 channel=%s node=1", channelID)),
+	)
 
 	ginkgo.By(fmt.Sprintf("joining peers to the channel %s", channelID))
 	peers := network.PeersWithChannel(channelID)
@@ -219,7 +220,8 @@ func JoinOrdererAppChannel(network *nwo.Network, channelID string, orderer *nwo.
 
 	ginkgo.By(fmt.Sprintf("waiting for leader on channel %s", channelID))
 	Eventually(ordererRunner.Err(), network.EventuallyTimeout, time.Second).Should(
-		gbytes.Say(fmt.Sprintf("Raft leader changed: 0 -> 1 channel=%s node=1", channelID)))
+		gbytes.Say(fmt.Sprintf("Raft leader changed: 0 -> 1 channel=%s node=1", channelID)),
+	)
 }
 
 // JoinOrderersAppChannelCluster Joins a set of orderers to a channel for which the genesis block was created by the network

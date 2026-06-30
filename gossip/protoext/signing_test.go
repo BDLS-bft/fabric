@@ -11,11 +11,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/gossip"
+	"github.com/hyperledger/fabric-protos-go-apiv2/gossip"
 	"github.com/hyperledger/fabric/gossip/protoext"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestToGossipMessageNilEnvelope(t *testing.T) {
@@ -419,7 +419,8 @@ func TestInternalEndpoint(t *testing.T) {
 				Content: &gossip.Secret_InternalEndpoint{
 					InternalEndpoint: "foo",
 				},
-			}),
+			},
+		),
 	}))
 }
 

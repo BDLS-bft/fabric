@@ -7,11 +7,11 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
-	protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
-	"github.com/golang/protobuf/proto"
-	ab "github.com/hyperledger/fabric-protos-go/orderer"
+	protos "github.com/hyperledger-labs/SmartBFT/smartbftprotos"
+	ab "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:generate mockery -dir . -name MessageReceiver -case underscore -output mocks
@@ -31,7 +31,7 @@ type ReceiverGetter interface {
 }
 
 type WarningLogger interface {
-	Warningf(template string, args ...interface{})
+	Warningf(template string, args ...any)
 }
 
 // Ingress dispatches Submit and Step requests to the designated per chain instances

@@ -15,13 +15,12 @@ import (
 	"testing"
 	"time"
 
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/bccsp/factory"
-	"github.com/hyperledger/fabric/bccsp/sw"
-	"github.com/hyperledger/fabric/common/channelconfig"
+	"github.com/hyperledger/fabric-lib-go/bccsp/factory"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/crypto/tlsgen"
-	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/config/configtest"
 	"github.com/hyperledger/fabric/internal/configtxgen/encoder"
@@ -267,16 +266,17 @@ func TestGetOrdererEndpointFromConfigTx(t *testing.T) {
 	cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
 	require.NoError(t, err)
 
-	t.Run("green-path", func(t *testing.T) {
-		profile := genesisconfig.Load(genesisconfig.SampleInsecureSoloProfile, configtest.GetDevConfigDir())
+	t.Run("green-path V3", func(t *testing.T) {
+		tlsCA, err := tlsgen.NewCA()
+		require.NoError(t, err)
+		certDir := t.TempDir()
+		profile := genesisconfig.Load(genesisconfig.SampleAppChannelEtcdRaftProfile, configtest.GetDevConfigDir())
+		generateCertificates(profile, tlsCA, certDir)
+		t.Logf("%+v", profile.Orderer.Organizations[0])
+
 		channelGroup, err := encoder.NewChannelGroup(profile)
 		require.NoError(t, err)
 		channelConfig := &cb.Config{ChannelGroup: channelGroup}
-
-		ordererAddresses := channelconfig.OrdererAddressesValue([]string{"order-1-endpoint", "order-2-end-point"})
-		channelConfig.ChannelGroup.Values[ordererAddresses.Key()] = &cb.ConfigValue{
-			Value: protoutil.MarshalOrPanic(ordererAddresses.Value()),
-		}
 
 		mockEndorserClient := common.GetMockEndorserClient(
 			&pb.ProposalResponse{
@@ -288,7 +288,65 @@ func TestGetOrdererEndpointFromConfigTx(t *testing.T) {
 
 		ordererEndpoints, err := common.GetOrdererEndpointOfChain("test-channel", signer, mockEndorserClient, cryptoProvider)
 		require.NoError(t, err)
-		require.Equal(t, []string{"order-1-endpoint", "order-2-end-point"}, ordererEndpoints)
+		require.Equal(t, []string{"127.0.0.1:7050", "127.0.0.1:7051", "127.0.0.1:7052"}, ordererEndpoints)
+	})
+
+	t.Run("green-path V2 ignores global addresses", func(t *testing.T) {
+		tlsCA, err := tlsgen.NewCA()
+		require.NoError(t, err)
+		certDir := t.TempDir()
+		profile := genesisconfig.Load(genesisconfig.SampleAppChannelEtcdRaftProfile, configtest.GetDevConfigDir())
+		profile.Capabilities = map[string]bool{"V2_0": true}
+		profile.Orderer.Addresses = []string{"globalAddr:666"} // should be ignored
+		generateCertificates(profile, tlsCA, certDir)
+
+		t.Logf("%+v", profile.Orderer.Addresses)
+		t.Logf("%+v", profile.Orderer.Organizations[0])
+
+		channelGroup, err := encoder.NewChannelGroup(profile)
+		require.NoError(t, err)
+		channelConfig := &cb.Config{ChannelGroup: channelGroup}
+
+		mockEndorserClient := common.GetMockEndorserClient(
+			&pb.ProposalResponse{
+				Response:    &pb.Response{Status: 200, Payload: protoutil.MarshalOrPanic(channelConfig)},
+				Endorsement: &pb.Endorsement{},
+			},
+			nil,
+		)
+
+		ordererEndpoints, err := common.GetOrdererEndpointOfChain("test-channel", signer, mockEndorserClient, cryptoProvider)
+		require.NoError(t, err)
+		require.Equal(t, []string{"127.0.0.1:7050", "127.0.0.1:7051", "127.0.0.1:7052"}, ordererEndpoints)
+	})
+
+	t.Run("green-path V2 takes global addresses", func(t *testing.T) {
+		tlsCA, err := tlsgen.NewCA()
+		require.NoError(t, err)
+		certDir := t.TempDir()
+		profile := genesisconfig.Load(genesisconfig.SampleAppChannelEtcdRaftProfile, configtest.GetDevConfigDir())
+		profile.Capabilities = map[string]bool{"V2_0": true}
+		profile.Orderer.Addresses = []string{"globalAddr:666"}  // should be taken
+		profile.Orderer.Organizations[0].OrdererEndpoints = nil // because per-org are missing
+		generateCertificates(profile, tlsCA, certDir)
+
+		t.Logf("%+v", profile.Orderer.Organizations[0])
+
+		channelGroup, err := encoder.NewChannelGroup(profile)
+		require.NoError(t, err)
+		channelConfig := &cb.Config{ChannelGroup: channelGroup}
+
+		mockEndorserClient := common.GetMockEndorserClient(
+			&pb.ProposalResponse{
+				Response:    &pb.Response{Status: 200, Payload: protoutil.MarshalOrPanic(channelConfig)},
+				Endorsement: &pb.Endorsement{},
+			},
+			nil,
+		)
+
+		ordererEndpoints, err := common.GetOrdererEndpointOfChain("test-channel", signer, mockEndorserClient, cryptoProvider)
+		require.NoError(t, err)
+		require.Equal(t, []string{"globalAddr:666"}, ordererEndpoints)
 	})
 
 	t.Run("error-invoking-CSCC", func(t *testing.T) {
@@ -403,4 +461,35 @@ func TestConfigFromEnv(t *testing.T) {
 	require.Equal(t, 1, len(clientConfig.SecOpts.ServerRootCAs), "ClientConfig.SecOpts.ServerRootCAs should contain 1 entries")
 	require.Equal(t, org1ServerKP.Key, clientConfig.SecOpts.Key, "Client.SecOpts.Key should be set to configured key")
 	require.Equal(t, org1ServerKP.Cert, clientConfig.SecOpts.Certificate, "Client.SecOpts.Certificate shoulbe bet set to configured certificate")
+}
+
+// TODO this pattern repeats itself in several places. Make it common in the 'genesisconfig' package to easily create
+// Raft genesis blocks
+func generateCertificates(confAppRaft *genesisconfig.Profile, tlsCA tlsgen.CA, certDir string) error {
+	for i, c := range confAppRaft.Orderer.EtcdRaft.Consenters {
+		srvC, err := tlsCA.NewServerCertKeyPair(c.Host)
+		if err != nil {
+			return err
+		}
+		srvP := path.Join(certDir, fmt.Sprintf("server%d.crt", i))
+		err = os.WriteFile(srvP, srvC.Cert, 0o644)
+		if err != nil {
+			return err
+		}
+
+		clnC, err := tlsCA.NewClientCertKeyPair()
+		if err != nil {
+			return err
+		}
+		clnP := path.Join(certDir, fmt.Sprintf("client%d.crt", i))
+		err = os.WriteFile(clnP, clnC.Cert, 0o644)
+		if err != nil {
+			return err
+		}
+
+		c.ServerTlsCert = []byte(srvP)
+		c.ClientTlsCert = []byte(clnP)
+	}
+
+	return nil
 }

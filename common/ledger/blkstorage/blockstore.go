@@ -9,8 +9,8 @@ package blkstorage
 import (
 	"time"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/ledger"
 	"github.com/hyperledger/fabric/common/ledger/snapshot"
 	"github.com/hyperledger/fabric/common/ledger/util/leveldbhelper"
@@ -26,7 +26,8 @@ type BlockStore struct {
 
 // newBlockStore constructs a `BlockStore`
 func newBlockStore(id string, conf *Conf, indexConfig *IndexConfig,
-	dbHandle *leveldbhelper.DBHandle, stats *stats) (*BlockStore, error) {
+	dbHandle *leveldbhelper.DBHandle, stats *stats,
+) (*BlockStore, error) {
 	fileMgr, err := newBlockfileMgr(id, conf, indexConfig, dbHandle)
 	if err != nil {
 		return nil, err

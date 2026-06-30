@@ -24,22 +24,21 @@ import (
 	"syscall"
 	"time"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	fabricmsp "github.com/hyperledger/fabric/msp"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
 	"github.com/tedsuo/ifrit"
 	ginkgomon "github.com/tedsuo/ifrit/ginkgomon_v2"
-	"gopkg.in/yaml.v2"
+	"go.yaml.in/yaml/v4"
 )
 
 var _ = Describe("MSPs with RSA Certificate Authorities", func() {
 	var (
-		client  *docker.Client
+		client  dcli.APIClient
 		testDir string
 		network *nwo.Network
 
@@ -52,7 +51,7 @@ var _ = Describe("MSPs with RSA Certificate Authorities", func() {
 		testDir, err = os.MkdirTemp("", "msp")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		network = nwo.New(nwo.BasicEtcdRaft(), testDir, client, StartPort(), components)
@@ -112,7 +111,7 @@ var _ = Describe("MSPs with RSA Certificate Authorities", func() {
 			Label:           "my_prebuilt_chaincode",
 		}
 
-		channelparticipation.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
+		nwo.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
 
 		nwo.EnableCapabilities(
 			network,
@@ -342,6 +341,7 @@ type CA struct {
 }
 
 func newCA(orgName, caName string) *CA {
+	var err error
 	signer := generateRSAKey()
 
 	template := x509Template()
@@ -358,7 +358,8 @@ func newCA(orgName, caName string) *CA {
 		CommonName:   caName + "." + orgName,
 		Organization: []string{orgName},
 	}
-	template.SubjectKeyId = computeSKI(signer.Public())
+	template.SubjectKeyId, err = computeSKI(signer.Public())
+	Expect(err).NotTo(HaveOccurred())
 
 	certBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, signer.Public(), signer)
 	Expect(err).NotTo(HaveOccurred())
@@ -373,6 +374,8 @@ func newCA(orgName, caName string) *CA {
 }
 
 func (ca *CA) issueSignCertificate(name string, ous []string, pub crypto.PublicKey) ([]byte, *x509.Certificate) {
+	var err error
+
 	template := x509Template()
 	template.KeyUsage = x509.KeyUsageDigitalSignature
 	template.ExtKeyUsage = nil
@@ -381,7 +384,8 @@ func (ca *CA) issueSignCertificate(name string, ous []string, pub crypto.PublicK
 		Organization:       ca.cert.Subject.Organization,
 		OrganizationalUnit: ous,
 	}
-	template.SubjectKeyId = computeSKI(pub)
+	template.SubjectKeyId, err = computeSKI(pub)
+	Expect(err).NotTo(HaveOccurred())
 
 	certBytes, err := x509.CreateCertificate(rand.Reader, &template, ca.cert, pub, ca.signer)
 	Expect(err).NotTo(HaveOccurred())
@@ -391,6 +395,8 @@ func (ca *CA) issueSignCertificate(name string, ous []string, pub crypto.PublicK
 }
 
 func (ca *CA) issueTLSCertificate(name string, sans []string, pub crypto.PublicKey) ([]byte, *x509.Certificate) {
+	var err error
+
 	template := x509Template()
 	template.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment
 	template.ExtKeyUsage = []x509.ExtKeyUsage{
@@ -401,7 +407,8 @@ func (ca *CA) issueTLSCertificate(name string, sans []string, pub crypto.PublicK
 		CommonName:   name,
 		Organization: ca.cert.Subject.Organization,
 	}
-	template.SubjectKeyId = computeSKI(pub)
+	template.SubjectKeyId, err = computeSKI(pub)
+	Expect(err).NotTo(HaveOccurred())
 
 	for _, san := range sans {
 		if ip := net.ParseIP(san); ip != nil {
@@ -450,16 +457,21 @@ func x509Template() x509.Certificate {
 	}
 }
 
-func computeSKI(key crypto.PublicKey) []byte {
+func computeSKI(key crypto.PublicKey) ([]byte, error) {
 	var raw []byte
 	switch key := key.(type) {
 	case *rsa.PublicKey:
 		raw = x509.MarshalPKCS1PublicKey(key)
 	case *ecdsa.PublicKey:
-		raw = elliptic.Marshal(key.Curve, key.X, key.Y)
+		ecdhKey, err := key.ECDH()
+		if err != nil {
+			return nil, fmt.Errorf("public key transition failed: %w", err)
+		}
+		raw = ecdhKey.Bytes()
 	default:
-		panic(fmt.Sprintf("unexpected type: %T", key))
+
+		return nil, fmt.Errorf("unexpected type: %T", key)
 	}
 	hash := sha256.Sum256(raw)
-	return hash[:]
+	return hash[:], nil
 }

@@ -10,7 +10,7 @@ import (
 	"math"
 
 	"github.com/bits-and-blooms/bitset"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/internal/version"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/rwsetutil"
@@ -104,7 +104,8 @@ func prepareMissingDataEntries(
 // prepareExpiryEntries returns expiry entries for both private data which is present in the committingBlk
 // and missing private.
 func prepareExpiryEntries(committingBlk uint64, dataEntries []*dataEntry, elgMissingDataEntries, inelgMissingDataEntries map[missingDataKey]*bitset.BitSet,
-	btlPolicy pvtdatapolicy.BTLPolicy) ([]*expiryEntry, error) {
+	btlPolicy pvtdatapolicy.BTLPolicy,
+) ([]*expiryEntry, error) {
 	var expiryEntries []*expiryEntry
 	mapByExpiringBlk := make(map[uint64]*ExpiryData)
 
@@ -134,7 +135,7 @@ func prepareExpiryEntries(committingBlk uint64, dataEntries []*dataEntry, elgMis
 	return expiryEntries, nil
 }
 
-// prepareExpiryDataForPresentData creates expiryData for non-missing pvt data
+// prepareExpiryEntriesForPresentData creates expiryData for non-missing pvt data
 func prepareExpiryEntriesForPresentData(mapByExpiringBlk map[uint64]*ExpiryData, dataKey *dataKey, btlPolicy pvtdatapolicy.BTLPolicy) error {
 	expiringBlk, err := btlPolicy.GetExpiringBlock(dataKey.ns, dataKey.coll, dataKey.blkNum)
 	if err != nil {
@@ -150,7 +151,7 @@ func prepareExpiryEntriesForPresentData(mapByExpiringBlk map[uint64]*ExpiryData,
 	return nil
 }
 
-// prepareExpiryDataForMissingData creates expiryData for missing pvt data
+// prepareExpiryEntriesForMissingData creates expiryData for missing pvt data
 func prepareExpiryEntriesForMissingData(mapByExpiringBlk map[uint64]*ExpiryData, missingKey *missingDataKey, btlPolicy pvtdatapolicy.BTLPolicy) error {
 	expiringBlk, err := btlPolicy.GetExpiringBlock(missingKey.ns, missingKey.coll, missingKey.blkNum)
 	if err != nil {
@@ -196,7 +197,8 @@ func preparePurgerMarkerEntries(blkNum uint64, purgeMarkers []*PurgeMarker) ([]*
 	nsCollVisitedMap := map[nsColl]*version.Height{}
 
 	for _, m := range purgeMarkers {
-		purgeMarkersEntries = append(purgeMarkersEntries,
+		purgeMarkersEntries = append(
+			purgeMarkersEntries,
 			&purgeMarkerEntry{
 				key: &purgeMarkerKey{
 					ns:         m.Ns,
@@ -217,7 +219,8 @@ func preparePurgerMarkerEntries(blkNum uint64, purgeMarkers []*PurgeMarker) ([]*
 			// a key in the same collection with higher version already caused adding of collection level purge mearker entry
 			continue
 		}
-		purgeMarkersCollEntries = append(purgeMarkersCollEntries,
+		purgeMarkersCollEntries = append(
+			purgeMarkersCollEntries,
 			&purgeMarkerCollEntry{
 				key: &purgeMarkerCollKey{
 					ns:   m.Ns,
@@ -276,7 +279,8 @@ func deriveKeys(expiryEntry *expiryEntry) ([]*dataKey, []*missingDataKey, []*boo
 
 		for coll, txNums := range colls.BootKVHashes {
 			for _, txNum := range txNums.List {
-				bootKVHashesKeys = append(bootKVHashesKeys,
+				bootKVHashesKeys = append(
+					bootKVHashesKeys,
 					&bootKVHashesKey{
 						blkNum: expiryEntry.key.committingBlk,
 						txNum:  txNum,

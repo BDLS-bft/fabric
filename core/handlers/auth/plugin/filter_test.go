@@ -10,7 +10,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +19,8 @@ type mockEndorserServer struct {
 }
 
 func (es *mockEndorserServer) ProcessProposal(context.Context,
-	*peer.SignedProposal) (*peer.ProposalResponse, error) {
+	*peer.SignedProposal,
+) (*peer.ProposalResponse, error) {
 	es.invoked = true
 	return nil, nil
 }

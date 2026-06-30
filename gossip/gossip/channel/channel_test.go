@@ -16,12 +16,11 @@ import (
 	"testing"
 	"time"
 
-	gproto "github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	proto "github.com/hyperledger/fabric-protos-go/gossip"
-	"github.com/hyperledger/fabric/bccsp/factory"
-	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/hyperledger/fabric/common/metrics/disabled"
+	"github.com/hyperledger/fabric-lib-go/bccsp/factory"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/metrics/disabled"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	proto "github.com/hyperledger/fabric-protos-go-apiv2/gossip"
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/gossip/comm"
 	"github.com/hyperledger/fabric/gossip/common"
@@ -35,6 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 type msgMutator func(message *proto.Envelope)
@@ -198,7 +198,7 @@ type gossipAdapterMock struct {
 	sync.RWMutex
 }
 
-func (ga *gossipAdapterMock) On(methodName string, arguments ...interface{}) *mock.Call {
+func (ga *gossipAdapterMock) On(methodName string, arguments ...any) *mock.Call {
 	ga.Lock()
 	defer ga.Unlock()
 	return ga.Mock.On(methodName, arguments...)
@@ -222,7 +222,7 @@ func (ga *gossipAdapterMock) Forward(msg protoext.ReceivedMessage) {
 	ga.Called(msg)
 }
 
-func (ga *gossipAdapterMock) DeMultiplex(msg interface{}) {
+func (ga *gossipAdapterMock) DeMultiplex(msg any) {
 	ga.Called(msg)
 }
 
@@ -638,7 +638,7 @@ func TestChannelMsgStoreEviction(t *testing.T) {
 	// Since we checked the length, it proves that the old blocks were discarded, since we had much more
 	// total blocks overall than our capacity
 	for seq := range lastPullPhase {
-		require.Contains(t, msg.GetDataDig().Digests, []byte(fmt.Sprintf("%d", seq)))
+		require.Contains(t, msg.GetDataDig().Digests, fmt.Appendf(nil, "%d", seq))
 	}
 }
 
@@ -1895,7 +1895,7 @@ func TestFilterForeignOrgLeadershipMessages(t *testing.T) {
 	cs := &cryptoService{}
 	adapter := &gossipAdapterMock{}
 
-	relayedLeadershipMsgs := make(chan interface{}, 2)
+	relayedLeadershipMsgs := make(chan any, 2)
 
 	adapter.On("GetOrgOfPeer", p1).Return(org1)
 	adapter.On("GetOrgOfPeer", p2).Return(org2)
@@ -2213,12 +2213,11 @@ func TestChangesInPeers(t *testing.T) {
 	}
 
 	for _, test := range cases {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			// channel for holding the output of report
 			chForString := make(chan string, 1)
 			// this is called as mt.report()
-			funcLogger := func(a ...interface{}) {
+			funcLogger := func(a ...any) {
 				chForString <- fmt.Sprint(a...)
 			}
 
@@ -2268,11 +2267,9 @@ func TestChangesInPeers(t *testing.T) {
 			}
 
 			wgMT := sync.WaitGroup{}
-			wgMT.Add(1)
-			go func() {
+			wgMT.Go(func() {
 				mt.trackMembershipChanges()
-				wgMT.Done()
-			}()
+			})
 
 			tickChan <- time.Time{}
 

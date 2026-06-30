@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package confighistorytest
 
 import (
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/confighistory"
 	"github.com/hyperledger/fabric/core/ledger/mock"
@@ -74,7 +74,8 @@ func BuildCollConfigPkg(staticCollectionConfigs []*peer.StaticCollectionConfig) 
 		Config: []*peer.CollectionConfig{},
 	}
 	for _, c := range staticCollectionConfigs {
-		pkg.Config = append(pkg.Config,
+		pkg.Config = append(
+			pkg.Config,
 			&peer.CollectionConfig{
 				Payload: &peer.CollectionConfig_StaticCollectionConfig{
 					StaticCollectionConfig: c,

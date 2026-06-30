@@ -14,16 +14,16 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	lb "github.com/hyperledger/fabric-protos-go/peer/lifecycle"
-	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric-lib-go/bccsp"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
+	lb "github.com/hyperledger/fabric-protos-go-apiv2/peer/lifecycle"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"google.golang.org/protobuf/proto"
 )
 
 // CommitReadinessChecker holds the dependencies needed to
@@ -261,7 +261,7 @@ func (c *CommitReadinessChecker) printResponse(proposalResponse *pb.ProposalResp
 	return nil
 }
 
-// setInput creates the input struct based on the CLI flags
+// createInput creates the input struct based on the CLI flags
 func (c *CommitReadinessChecker) createInput() (*CommitReadinessCheckInput, error) {
 	policyBytes, err := createPolicyBytes(signaturePolicy, channelConfigPolicy)
 	if err != nil {

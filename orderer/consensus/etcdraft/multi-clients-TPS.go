@@ -11,22 +11,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/orderer/common/multichannel"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"google.golang.org/protobuf/proto"
 )
 
 // TestMultiClients function runs multiple clients concurrently
 // Submits different envelopes to measure the TPS.
 func (c *Chain) TestMultiClients() {
-
-	c.logger.Info(" ------------------------------- c.raftID is: %v", c.raftID)
+	c.logger.Infof(" ------------------------------- c.raftID is: %v", c.raftID)
 	time.Sleep(10 * time.Second)
 	if c.raftID == 2 {
 		c.logger.Info("************* TEST TPS start---")
 		// start := time.Now()
 		// c.logger.Debugf("TEST TPS start:", start)
-		multichannel.SetTPSStart()
 		wg := new(sync.WaitGroup)
 		wg.Add(1)
 		go c.TestOrderClient1(wg)

@@ -50,7 +50,7 @@ distributed ledger or blockchain platforms.
 One key point of differentiation is that Hyperledger was established under the
 Linux Foundation, which itself has a long and very successful history of
 nurturing open-source projects under **open governance** that grow strong, sustainable communities and thriving ecosystems. Hyperledger is governed by a
-diverse technical steering committee, while the Hyperledger Fabric project is handled by a
+diverse technical oversight committee (TOC), while the Hyperledger Fabric project is handled by a
 diverse set of maintainers from multiple organizations. Hundreds of developers
 spanning many organizations have contributed to Hyperledger Fabric.
 
@@ -179,7 +179,7 @@ The order-execute architecture can be found in virtually all existing blockchain
 systems, ranging from public/permissionless platforms such as
 [Ethereum](https://ethereum.org/) (with PoS-based consensus) to permissioned
 platforms such as [Tendermint](http://tendermint.com/),
-[Chain](http://chain.com/), and [Quorum](http://www.jpmorgan.com/global/Quorum).
+[Chain](http://chain.com/), and [Quorum](https://goquorum.readthedocs.io/).
 
 Smart contracts executing in a blockchain that operates with the order-execute
 architecture must be deterministic; otherwise, consensus might never be reached.
@@ -213,7 +213,7 @@ executes transactions before reaching final agreement on their order.
 
 In Fabric, an application-specific endorsement policy specifies which peer
 nodes, or how many of them, need to vouch for the correct execution of a given
-smart contract. Thus, each transaction need only be executed (endorsed) by the
+smart contract. Thus, each transaction needs only be executed (endorsed) by the
 subset of the peer nodes necessary to satisfy the transaction's endorsement
 policy. This allows for parallel execution increasing overall performance and
 scale of the system. This first phase also **eliminates any non-determinism**,
@@ -282,8 +282,6 @@ particular deployment or solution. This modular architecture allows the platform
 to rely on well-established toolkits for CFT (crash fault-tolerant) or BFT
 (byzantine fault-tolerant) ordering.
 
-Fabric currently offers a CFT ordering service implementation
-based on the [`etcd` library](https://coreos.com/etcd/) of the [Raft protocol](https://raft.github.io/raft.pdf).
 For information about currently available ordering services, check
 out our [conceptual documentation about ordering](./orderer/ordering_service.html).
 
@@ -304,7 +302,7 @@ See the [Performance considerations topic](./performance.html) to learn more abo
 
 ## Fabric Ecosystem
 
-There is a large [ecosystem](https://wiki.hyperledger.org/display/fabric/Ecosystem)
+There is a large [ecosystem](https://lf-hyperledger.atlassian.net/wiki/spaces/fabric/pages/22839837/Ecosystem)
 of open source projects to help you build Fabric applications,
 as well as test, deploy, and manage production networks.
 

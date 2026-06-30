@@ -10,13 +10,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/golang/protobuf/proto"
-	gp "github.com/hyperledger/fabric-protos-go/gateway"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	gp "github.com/hyperledger/fabric-protos-go-apiv2/gateway"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/protoutil"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // Endorse will collect endorsements by invoking the transaction function specified in the SignedProposal against
@@ -80,28 +80,33 @@ func (gs *Server) Endorse(ctx context.Context, request *gp.EndorseRequest) (*gp.
 			break
 		}
 		// send to all the endorsers
-		waitCh := make(chan bool, len(endorsers))
+		waitCh := make(chan string, len(endorsers))
 		for _, e := range endorsers {
 			go func(e *endorser) {
+				var g string
 				for e != nil {
 					if gs.processProposal(ctx, plan, e, signedProposal, logger) {
 						break
 					}
-					e = plan.nextPeerInGroup(e)
+					e, g = plan.nextPeerInGroup(e)
 				}
-				waitCh <- true
+				waitCh <- g
 			}(e)
 		}
-		for i := 0; i < len(endorsers); i++ {
+
+		groups := make([]string, 0, len(endorsers))
+		for range endorsers {
 			select {
-			case <-waitCh:
+			case group := <-waitCh:
 				// Endorser completedLayout normally
+				groups = append(groups, group)
 			case <-ctx.Done():
 				logger.Warnw("Endorse call timed out while collecting endorsements", "numEndorsers", len(endorsers))
 				return nil, newRpcError(codes.DeadlineExceeded, "endorsement timeout expired while collecting endorsements")
 			}
 		}
 
+		plan.abandonGroupRemoveLayouts(groups...)
 	}
 
 	if plan.completedLayout == nil {
@@ -211,8 +216,10 @@ func (gs *Server) planFromFirstEndorser(ctx context.Context, channel string, cha
 				if remove {
 					gs.registry.removeEndorser(firstEndorser)
 				}
-				firstEndorser = plan.nextPeerInGroup(firstEndorser)
+				var group string
+				firstEndorser, group = plan.nextPeerInGroup(firstEndorser)
 				firstResponse = nil
+				plan.abandonGroupRemoveLayouts(group)
 			}
 		}()
 		select {
@@ -241,8 +248,8 @@ func (gs *Server) planFromFirstEndorser(ctx context.Context, channel string, cha
 	var protectedCollections []string
 	if hasTransientData {
 		for _, call := range interest.GetChaincodes() {
-			ccc := *call // shallow copy
-			originalInterest.Chaincodes = append(originalInterest.Chaincodes, &ccc)
+			ccc := proto.Clone(call).(*peer.ChaincodeCall)
+			originalInterest.Chaincodes = append(originalInterest.Chaincodes, ccc)
 			if call.NoPrivateReads {
 				call.NoPrivateReads = false
 				protectedCollections = append(protectedCollections, call.CollectionNames...)

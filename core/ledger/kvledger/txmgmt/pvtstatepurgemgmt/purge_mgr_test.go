@@ -10,7 +10,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
 	"github.com/hyperledger/fabric/core/ledger/internal/version"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/bookkeeping"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/privacyenabledstate"
@@ -226,7 +226,8 @@ func TestOnlyHashUpdateInExpiryBlock(t *testing.T) {
 	noPvtdataUpdates := privacyenabledstate.NewUpdateBatch()
 	helper.commitUpdatesForTesting(2, noPvtdataUpdates)
 	helper.checkPvtdataExists(
-		"ns", "coll", "pvtkey", []byte("pvtvalue-1"))
+		"ns", "coll", "pvtkey", []byte("pvtvalue-1"),
+	)
 	helper.checkExpiryEntryExistsForBlockNum(3, 1)
 
 	// block-3 update: Update hash only

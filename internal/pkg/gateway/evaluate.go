@@ -10,13 +10,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/golang/protobuf/proto"
-	gp "github.com/hyperledger/fabric-protos-go/gateway"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	gp "github.com/hyperledger/fabric-protos-go-apiv2/gateway"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // Evaluate will invoke the transaction function as specified in the SignedProposal
@@ -78,7 +78,10 @@ func (gs *Server) Evaluate(ctx context.Context, request *gp.EvaluateRequest) (*g
 					gs.registry.removeEndorser(endorser)
 				}
 				if retry {
-					endorser = plan.nextPeerInGroup(endorser)
+					var group string
+					endorser, group = plan.nextPeerInGroup(endorser)
+					plan.abandonGroupRemoveLayouts(group)
+
 				} else {
 					done <- newRpcError(code, "evaluate call to endorser returned error: "+message, errDetails...)
 				}

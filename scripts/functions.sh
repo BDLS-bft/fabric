@@ -31,6 +31,7 @@ function filterExcludedAndGeneratedFiles {
         '\.txt$'
         '^NOTICE$'
         '(^|/)testdata\/'
+        '(^|/)third_party\/'
         '(^|/)vendor\/'
         '(^|/)Pipfile$'
         '(^|/)Pipfile\.lock$'

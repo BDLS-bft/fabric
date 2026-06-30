@@ -139,7 +139,8 @@ func privateKeyToEncryptedPEM(privateKey interface{}, pwd []byte) ([]byte, error
 			"PRIVATE KEY",
 			raw,
 			pwd,
-			x509.PEMCipherAES256)
+			x509.PEMCipherAES256,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -245,7 +246,8 @@ func aesToEncryptedPEM(raw []byte, pwd []byte) ([]byte, error) {
 		"AES PRIVATE KEY",
 		raw,
 		pwd,
-		x509.PEMCipherAES256)
+		x509.PEMCipherAES256,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +302,8 @@ func publicKeyToEncryptedPEM(publicKey interface{}, pwd []byte) ([]byte, error) 
 			"PUBLIC KEY",
 			raw,
 			pwd,
-			x509.PEMCipherAES256)
+			x509.PEMCipherAES256,
+		)
 		if err != nil {
 			return nil, err
 		}

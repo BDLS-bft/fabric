@@ -9,9 +9,8 @@ package peer
 import (
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric-lib-go/bccsp/sw"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/capabilities"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	configtxtest "github.com/hyperledger/fabric/common/configtx/test"
@@ -22,6 +21,7 @@ import (
 	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestConfigTxCreateLedger(t *testing.T) {
@@ -46,7 +46,7 @@ func TestConfigTxCreateLedger(t *testing.T) {
 
 	retrievedchanConf, err := RetrievePersistedChannelConfig(ledger)
 	require.NoError(t, err)
-	require.Equal(t, proto.CompactTextString(chanConf), proto.CompactTextString(retrievedchanConf))
+	require.True(t, proto.Equal(chanConf, retrievedchanConf))
 }
 
 func TestConfigTxErrorScenarios(t *testing.T) {
@@ -87,18 +87,18 @@ func TestConfigTxUpdateChanConfig(t *testing.T) {
 
 	retrievedchanConf, err := RetrievePersistedChannelConfig(lgr)
 	require.NoError(t, err)
-	require.Equal(t, proto.CompactTextString(chanConf), proto.CompactTextString(retrievedchanConf))
+	require.True(t, proto.Equal(chanConf, retrievedchanConf))
 
 	helper.mockCreateChain(t, channelID, lgr)
 	defer helper.clearMockChains()
 
 	bs := helper.peer.channels[channelID].bundleSource
 	inMemoryChanConf := bs.ConfigtxValidator().ConfigProto()
-	require.Equal(t, proto.CompactTextString(chanConf), proto.CompactTextString(inMemoryChanConf))
+	require.True(t, proto.Equal(chanConf, inMemoryChanConf))
 
 	retrievedchanConf, err = RetrievePersistedChannelConfig(lgr)
 	require.NoError(t, err)
-	require.Equal(t, proto.CompactTextString(bs.ConfigtxValidator().ConfigProto()), proto.CompactTextString(retrievedchanConf))
+	require.True(t, proto.Equal(bs.ConfigtxValidator().ConfigProto(), retrievedchanConf))
 
 	lgr.Close()
 	helper.clearMockChains()

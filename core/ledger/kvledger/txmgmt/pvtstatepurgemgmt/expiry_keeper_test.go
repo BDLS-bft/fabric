@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/bookkeeping"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestExpiryKVEncoding(t *testing.T) {
@@ -63,7 +63,8 @@ func TestExpiryKeeper(t *testing.T) {
 	require.True(t, proto.Equal(expinfo4.pvtdataKeys, listExpinfo3[0].pvtdataKeys))
 
 	// Clear entries for keys expiring at block 13 and 15 and again retrieve by expiring block 13, 15, and 17
-	require.NoError(t,
+	require.NoError(
+		t,
 		expiryKeeper.update(nil, []*expiryInfoKey{expinfo1.expiryInfoKey, expinfo2.expiryInfoKey, expinfo3.expiryInfoKey}),
 	)
 	listExpinfo4, _ := expiryKeeper.retrieve(13)
@@ -88,7 +89,7 @@ func TestExpiryKeeper(t *testing.T) {
 func buildPvtdataKeysForTest(startingEntry int, numEntries int) *PvtdataKeys {
 	pvtdataKeys := newPvtdataKeys()
 	for i := startingEntry; i <= startingEntry+numEntries; i++ {
-		pvtdataKeys.add(fmt.Sprintf("ns-%d", i), fmt.Sprintf("coll-%d", i), fmt.Sprintf("key-%d", i), []byte(fmt.Sprintf("key-%d-hash", i)))
+		pvtdataKeys.add(fmt.Sprintf("ns-%d", i), fmt.Sprintf("coll-%d", i), fmt.Sprintf("key-%d", i), fmt.Appendf(nil, "key-%d-hash", i))
 	}
 	return pvtdataKeys
 }

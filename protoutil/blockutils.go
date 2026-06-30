@@ -14,11 +14,11 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/msp"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/msp"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 // NewBlock constructs a block with no data and no metadata.
@@ -99,7 +99,13 @@ func GetChannelIDFromBlock(block *cb.Block) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	payload, err := UnmarshalPayload(envelope.Payload)
+
+	return GetChannelIDFromEnvelope(envelope)
+}
+
+// GetChannelIDFromEnvelope returns channel ID in the envelope
+func GetChannelIDFromEnvelope(envelope *cb.Envelope) (string, error) {
+	payload, err := UnmarshalPayload(envelope.GetPayload())
 	if err != nil {
 		return "", err
 	}
@@ -107,7 +113,7 @@ func GetChannelIDFromBlock(block *cb.Block) (string, error) {
 	if payload.Header == nil {
 		return "", errors.New("failed to retrieve channel id - payload header is empty")
 	}
-	chdr, err := UnmarshalChannelHeader(payload.Header.ChannelHeader)
+	chdr, err := UnmarshalChannelHeader(payload.GetHeader().GetChannelHeader())
 	if err != nil {
 		return "", err
 	}
@@ -309,7 +315,7 @@ func searchConsenterIdentityByID(consenters []*cb.Consenter, identifier uint32) 
 
 func VerifyTransactionsAreWellFormed(bd *cb.BlockData) error {
 	if bd == nil || bd.Data == nil || len(bd.Data) == 0 {
-		return fmt.Errorf("empty block")
+		return errors.New("empty block")
 	}
 
 	// If we have a single transaction, and the block is a config block, then no need to check

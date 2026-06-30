@@ -17,8 +17,8 @@ import (
 	"regexp"
 	"strings"
 
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/core/chaincode/platforms/util"
 )
 
@@ -129,7 +129,7 @@ func (p *Platform) GenerateDockerfile() (string, error) {
 	return dockerFileContents, nil
 }
 
-func (p *Platform) DockerBuildOptions(path string) (util.DockerBuildOptions, error) {
+func (p *Platform) DockerBuildOptions(string, string, string, string) (util.DockerBuildOptions, error) {
 	return util.DockerBuildOptions{
 		Image: util.GetDockerImageFromConfig("chaincode.java.runtime"),
 		Cmd:   "./build.sh",

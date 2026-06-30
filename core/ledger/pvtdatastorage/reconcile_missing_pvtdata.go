@@ -8,7 +8,7 @@ package pvtdatastorage
 
 import (
 	"github.com/bits-and-blooms/bitset"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
 	"github.com/hyperledger/fabric/common/ledger/util/leveldbhelper"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/pkg/errors"
@@ -121,7 +121,8 @@ func (p *oldBlockDataProcessor) prepareDataAndExpiryEntries(blocksPvtData map[ui
 func (p *oldBlockDataProcessor) prepareHashedIndexEntries() error {
 	d := []*dataEntry{}
 	for k, v := range p.entries.dataEntries {
-		d = append(d,
+		d = append(
+			d,
 			&dataEntry{
 				key: &dataKey{
 					nsCollBlk: k.nsCollBlk,
@@ -214,7 +215,8 @@ func (p *oldBlockDataProcessor) prepareBootKVHashesDeletions() {
 	}
 	for dataKey := range p.entries.dataEntries {
 		if dataKey.blkNum <= p.bootsnapshotInfo.lastBlockInSnapshot {
-			p.entries.bootKVHashesDeletions = append(p.entries.bootKVHashesDeletions,
+			p.entries.bootKVHashesDeletions = append(
+				p.entries.bootKVHashesDeletions,
 				&bootKVHashesKey{
 					blkNum: dataKey.blkNum,
 					txNum:  dataKey.txNum,

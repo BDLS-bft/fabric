@@ -10,11 +10,11 @@ import (
 	"encoding/asn1"
 	"math/big"
 
-	"github.com/SmartBFT-Go/consensus/pkg/types"
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger-labs/SmartBFT/pkg/types"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 // Signature implementation
@@ -22,6 +22,27 @@ type Signature struct {
 	IdentifierHeader     []byte
 	BlockHeader          []byte
 	OrdererBlockMetadata []byte
+}
+
+// ByteBufferTuple is the byte slice tuple used in legacy proposal payloads.
+type ByteBufferTuple struct {
+	A []byte
+	B []byte
+}
+
+// ToBytes marshals the buffer tuple to bytes.
+func (bbt *ByteBufferTuple) ToBytes() []byte {
+	bytes, err := asn1.Marshal(*bbt)
+	if err != nil {
+		panic(err)
+	}
+	return bytes
+}
+
+// FromBytes unmarshals bytes to a buffer tuple.
+func (bbt *ByteBufferTuple) FromBytes(bytes []byte) error {
+	_, err := asn1.Unmarshal(bytes, bbt)
+	return err
 }
 
 // Unmarshal the signature

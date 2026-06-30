@@ -10,8 +10,8 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/common/ledger/util"
 	"github.com/hyperledger/fabric/core/ledger"
 )
@@ -195,7 +195,8 @@ func trimPvtWSet(pvtWSet *rwset.TxPvtReadWriteSet, filter ledger.PvtNsCollFilter
 			}
 		}
 		if filteredCollRwSet != nil {
-			filteredNsRwSet = append(filteredNsRwSet,
+			filteredNsRwSet = append(
+				filteredNsRwSet,
 				&rwset.NsPvtReadWriteSet{
 					Namespace:          ns.Namespace,
 					CollectionPvtRwset: filteredCollRwSet,
@@ -214,7 +215,8 @@ func trimPvtWSet(pvtWSet *rwset.TxPvtReadWriteSet, filter ledger.PvtNsCollFilter
 }
 
 func trimPvtCollectionConfigs(configs map[string]*peer.CollectionConfigPackage,
-	filter ledger.PvtNsCollFilter) (map[string]*peer.CollectionConfigPackage, error) {
+	filter ledger.PvtNsCollFilter,
+) (map[string]*peer.CollectionConfigPackage, error) {
 	if filter == nil {
 		return configs, nil
 	}

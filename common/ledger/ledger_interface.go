@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /*
 Copyright IBM Corp. 2016 All Rights Reserved.
 
@@ -17,7 +19,7 @@ limitations under the License.
 package ledger
 
 import (
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 )
 
 // Ledger captures the methods that are common across the 'PeerLedger', 'OrdererLedger', and 'ValidatedLedger'
@@ -51,7 +53,7 @@ type QueryResultsIterator interface {
 }
 
 // QueryResult - a general interface for supporting different types of query results. Actual types differ for different queries
-type QueryResult interface{}
+type QueryResult any
 
 // PrunePolicy - a general interface for supporting different pruning policies
-type PrunePolicy interface{}
+type PrunePolicy any

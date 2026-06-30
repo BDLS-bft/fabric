@@ -8,493 +8,186 @@ package bdls
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/pem"
 	"fmt"
-	"sort"
+	"time"
 
-	"github.com/SmartBFT-Go/consensus/pkg/types"
-	"github.com/SmartBFT-Go/consensus/smartbftprotos"
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/msp"
-	"github.com/hyperledger/fabric-protos-go/orderer/smartbft"
-	"github.com/hyperledger/fabric/bccsp"
-	"github.com/hyperledger/fabric/common/channelconfig"
-	"github.com/hyperledger/fabric/common/crypto"
-	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/hyperledger/fabric/orderer/common/cluster"
-	"github.com/hyperledger/fabric/orderer/common/localconfig"
-	"github.com/hyperledger/fabric/orderer/consensus"
-	"github.com/hyperledger/fabric/orderer/consensus/etcdraft"
-	"github.com/hyperledger/fabric/protoutil"
-	"github.com/pkg/errors"
+	bdlslib "github.com/BDLS-bft/bdls"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"go.uber.org/zap/zapcore"
+	"google.golang.org/protobuf/proto"
+
+	bdlsproto "github.com/hyperledger/fabric/orderer/consensus/bdls/protos"
 )
 
-// RuntimeConfig defines the configuration of the consensus
-// that is related to runtime.
-type RuntimeConfig struct {
-	BFTConfig              types.Configuration
-	isConfig               bool
-	logger                 *flogging.FabricLogger
-	id                     uint64
-	LastCommittedBlockHash string
-	RemoteNodes            []cluster.RemoteNode
-	ID2Identities          NodeIdentitiesByID
-	LastBlock              *cb.Block
-	LastConfigBlock        *cb.Block
-	Nodes                  []uint64
-	consenters             []*cb.Consenter
+// parseConfigMetadata unmarshals a channel's ConsensusType.Metadata into the
+// BDLS ConfigMetadata shape. It is called by HandleChain (Phase C7) and by
+// the metadata validator (Phase C8); centralised here so there is one
+// definition of "how do we read BDLS channel config".
+func parseConfigMetadata(raw []byte) (*bdlsproto.ConfigMetadata, error) {
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("bdls: ConsensusType.Metadata is empty")
+	}
+	md := &bdlsproto.ConfigMetadata{}
+	if err := proto.Unmarshal(raw, md); err != nil {
+		return nil, fmt.Errorf("bdls: failed to unmarshal ConfigMetadata: %w", err)
+	}
+	return md, nil
 }
 
-/*
-// BlockCommitted updates the config from the block
-func (rtc RuntimeConfig) BlockCommitted(block *cb.Block, bccsp bccsp.BCCSP) (RuntimeConfig, error) {
-	if _, err := cluster.ConfigFromBlock(block); err == nil {
-		return rtc.configBlockCommitted(block, bccsp)
+// consenterPublicKey extracts the ECDSA public key from a PEM-encoded
+// consenter server TLS cert. BDLS uses the (X, Y) coordinates directly as
+// its participant identity via DefaultPubKeyToIdentity, so the curve MUST
+// match the one the BDLS library was compiled for (secp256k1 today).
+func consenterPublicKey(pemBytes []byte) (*ecdsa.PublicKey, error) {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, fmt.Errorf("bdls: consenter cert is not a valid PEM block")
 	}
-	return RuntimeConfig{
-		consenters:             rtc.consenters,
-		BFTConfig:              rtc.BFTConfig,
-		id:                     rtc.id,
-		logger:                 rtc.logger,
-		LastCommittedBlockHash: hex.EncodeToString(protoutil.BlockHeaderHash(block.Header)),
-		Nodes:                  rtc.Nodes,
-		ID2Identities:          rtc.ID2Identities,
-		RemoteNodes:            rtc.RemoteNodes,
-		LastBlock:              block,
-		LastConfigBlock:        rtc.LastConfigBlock,
-	}, nil
-}*/
-/*
-func (rtc RuntimeConfig) configBlockCommitted(block *cb.Block, bccsp bccsp.BCCSP) (RuntimeConfig, error) {
-	nodeConf, err := RemoteNodesFromConfigBlock(block, rtc.logger, bccsp)
+	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return rtc, errors.Wrap(err, "remote nodes cannot be computed, rejecting config block")
+		return nil, fmt.Errorf("bdls: x509.ParseCertificate: %w", err)
 	}
-
-	bftConfig, err := configBlockToBFTConfig(rtc.id, block, bccsp)
-	if err != nil {
-		return RuntimeConfig{}, err
-	}
-
-	return RuntimeConfig{
-		consenters:             nodeConf.consenters,
-		BFTConfig:              bftConfig,
-		isConfig:               true,
-		id:                     rtc.id,
-		logger:                 rtc.logger,
-		LastCommittedBlockHash: hex.EncodeToString(protoutil.BlockHeaderHash(block.Header)),
-		Nodes:                  nodeConf.nodeIDs,
-		ID2Identities:          nodeConf.id2Identities,
-		RemoteNodes:            nodeConf.remoteNodes,
-		LastBlock:              block,
-		LastConfigBlock:        block,
-	}, nil
-}*/
-
-/*
-func configBlockToBFTConfig(selfID uint64, block *cb.Block, bccsp bccsp.BCCSP) (types.Configuration, error) {
-	if block == nil || block.Data == nil || len(block.Data.Data) == 0 {
-		return types.Configuration{}, errors.New("empty block")
-	}
-
-	env, err := protoutil.UnmarshalEnvelope(block.Data.Data[0])
-	if err != nil {
-		return types.Configuration{}, err
-	}
-	bundle, err := channelconfig.NewBundleFromEnvelope(env, bccsp)
-	if err != nil {
-		return types.Configuration{}, err
-	}
-
-	oc, ok := bundle.OrdererConfig()
+	pub, ok := cert.PublicKey.(*ecdsa.PublicKey)
 	if !ok {
-		return types.Configuration{}, errors.New("no orderer config")
+		return nil, fmt.Errorf("bdls: consenter cert public key is %T, not *ecdsa.PublicKey", cert.PublicKey)
 	}
-
-	consensusConfigOptions := &smartbft.Options{}
-	if err := proto.Unmarshal(oc.ConsensusMetadata(), consensusConfigOptions); err != nil {
-		return types.Configuration{}, err
-	}
-
-	return configFromMetadataOptions(selfID, consensusConfigOptions)
-}*/
-
-//go:generate counterfeiter -o mocks/mock_blockpuller.go . BlockPuller
-
-// newBlockPuller creates a new block puller
-func newBlockPuller(
-	support consensus.ConsenterSupport,
-	baseDialer *cluster.PredicateDialer,
-	clusterConfig localconfig.Cluster,
-	bccsp bccsp.BCCSP) (BlockPuller, error) {
-	verifyBlockSequence := func(blocks []*cb.Block, _ string) error {
-		vb := cluster.BlockVerifierBuilder(bccsp)
-		return cluster.VerifyBlocksBFT(blocks, support.SignatureVerifier(), vb)
-	}
-
-	stdDialer := &cluster.StandardDialer{
-		Config: baseDialer.Config.Clone(),
-	}
-	stdDialer.Config.AsyncConnect = false
-	stdDialer.Config.SecOpts.VerifyCertificate = nil
-
-	// Extract the TLS CA certs and endpoints from the configuration,
-	endpoints, err := etcdraft.EndpointconfigFromSupport(support, bccsp)
-	if err != nil {
-		return nil, err
-	}
-
-	der, _ := pem.Decode(stdDialer.Config.SecOpts.Certificate)
-	if der == nil {
-		return nil, errors.Errorf("client certificate isn't in PEM format: %v",
-			string(stdDialer.Config.SecOpts.Certificate))
-	}
-
-	bp := &cluster.BlockPuller{
-		VerifyBlockSequence: verifyBlockSequence,
-		Logger:              flogging.MustGetLogger("orderer.common.cluster.puller"),
-		RetryTimeout:        clusterConfig.ReplicationRetryTimeout,
-		MaxTotalBufferBytes: clusterConfig.ReplicationBufferSize,
-		FetchTimeout:        clusterConfig.ReplicationPullTimeout,
-		Endpoints:           endpoints,
-		Signer:              support,
-		TLSCert:             der.Bytes,
-		Channel:             support.ChannelID(),
-		Dialer:              stdDialer,
-	}
-
-	return bp, nil
+	return pub, nil
 }
 
-func getViewMetadataFromBlock(block *cb.Block) (*smartbftprotos.ViewMetadata, error) {
-	if block.Header.Number == 0 {
-		// Genesis block has no prior metadata so we just return an un-initialized metadata
-		return new(smartbftprotos.ViewMetadata), nil
+// participantsFromConsenters translates a ConfigMetadata.Consenters slice into
+// the []bdlslib.Identity the BDLS library expects. The mapping is stable as
+// long as two channel-config updates agree on the server TLS cert for each
+// consenter — which is the same invariant smartbft relies on.
+func participantsFromConsenters(consenters []*bdlsproto.Consenter) ([]bdlslib.Identity, error) {
+	if len(consenters) < bdlslib.ConfigMinimumParticipants {
+		return nil, fmt.Errorf("bdls: ConfigMetadata has %d consenters, need at least %d",
+			len(consenters), bdlslib.ConfigMinimumParticipants)
 	}
-
-	signatureMetadata := protoutil.GetMetadataFromBlockOrPanic(block, cb.BlockMetadataIndex_SIGNATURES)
-	ordererMD := &cb.OrdererBlockMetadata{}
-	if err := proto.Unmarshal(signatureMetadata.Value, ordererMD); err != nil {
-		return nil, errors.Wrap(err, "failed unmarshaling OrdererBlockMetadata")
-	}
-
-	var viewMetadata smartbftprotos.ViewMetadata
-	if err := proto.Unmarshal(ordererMD.ConsenterMetadata, &viewMetadata); err != nil {
-		return nil, err
-	}
-
-	return &viewMetadata, nil
-}
-
-/*
-	func configFromMetadataOptions(selfID uint64, options *smartbft.Options) (types.Configuration, error) {
-		var err error
-
-		config := types.DefaultConfig
-		config.SelfID = (uint64)(selfID)
-
-		if options == nil {
-			return config, errors.New("config metadata options field is nil")
-		}
-
-		config.RequestBatchMaxCount = options.RequestBatchMaxCount
-		config.RequestBatchMaxBytes = options.RequestBatchMaxBytes
-		if config.RequestBatchMaxInterval, err = time.ParseDuration(options.RequestBatchMaxInterval); err != nil {
-			return config, errors.Wrap(err, "bad config metadata option RequestBatchMaxInterval")
-		}
-		config.IncomingMessageBufferSize = options.IncomingMessageBufferSize
-		config.RequestPoolSize = options.RequestPoolSize
-		if config.RequestForwardTimeout, err = time.ParseDuration(options.RequestForwardTimeout); err != nil {
-			return config, errors.Wrap(err, "bad config metadata option RequestForwardTimeout")
-		}
-		if config.RequestComplainTimeout, err = time.ParseDuration(options.RequestComplainTimeout); err != nil {
-			return config, errors.Wrap(err, "bad config metadata option RequestComplainTimeout")
-		}
-		if config.RequestAutoRemoveTimeout, err = time.ParseDuration(options.RequestAutoRemoveTimeout); err != nil {
-			return config, errors.Wrap(err, "bad config metadata option RequestAutoRemoveTimeout")
-		}
-		if config.ViewChangeResendInterval, err = time.ParseDuration(options.ViewChangeResendInterval); err != nil {
-			return config, errors.Wrap(err, "bad config metadata option ViewChangeResendInterval")
-		}
-		if config.ViewChangeTimeout, err = time.ParseDuration(options.ViewChangeTimeout); err != nil {
-			return config, errors.Wrap(err, "bad config metadata option ViewChangeTimeout")
-		}
-		if config.LeaderHeartbeatTimeout, err = time.ParseDuration(options.LeaderHeartbeatTimeout); err != nil {
-			return config, errors.Wrap(err, "bad config metadata option LeaderHeartbeatTimeout")
-		}
-		config.LeaderHeartbeatCount = options.LeaderHeartbeatCount
-		if config.CollectTimeout, err = time.ParseDuration(options.CollectTimeout); err != nil {
-			return config, errors.Wrap(err, "bad config metadata option CollectTimeout")
-		}
-		config.SyncOnStart = options.SyncOnStart
-		config.SpeedUpViewChange = options.SpeedUpViewChange
-
-		config.LeaderRotation = false
-		config.DecisionsPerLeader = 0
-
-		if err = config.Validate(); err != nil {
-			return config, errors.Wrap(err, "config validation failed")
-		}
-
-		config.RequestMaxBytes = 500 * 1024
-		return config, nil
-	}
-*/
-type request struct {
-	sigHdr   *cb.SignatureHeader
-	envelope *cb.Envelope
-	chHdr    *cb.ChannelHeader
-}
-
-// RequestInspector inspects incomming requests and validates serialized identity
-type RequestInspector struct {
-	ValidateIdentityStructure func(identity *msp.SerializedIdentity) error
-}
-
-func (ri *RequestInspector) requestIDFromSigHeader(sigHdr *cb.SignatureHeader) (types.RequestInfo, error) {
-	sID := &msp.SerializedIdentity{}
-	if err := proto.Unmarshal(sigHdr.Creator, sID); err != nil {
-		return types.RequestInfo{}, errors.Wrap(err, "identity isn't an MSP Identity")
-	}
-
-	if err := ri.ValidateIdentityStructure(sID); err != nil {
-		return types.RequestInfo{}, err
-	}
-
-	var preimage []byte
-	preimage = append(preimage, sigHdr.Nonce...)
-	preimage = append(preimage, sigHdr.Creator...)
-	txID := sha256.Sum256(preimage)
-	clientID := sha256.Sum256(sigHdr.Creator)
-	return types.RequestInfo{
-		ID:       hex.EncodeToString(txID[:]),
-		ClientID: hex.EncodeToString(clientID[:]),
-	}, nil
-}
-
-// RequestID unwraps the request info from the raw request
-func (ri *RequestInspector) RequestID(rawReq []byte) types.RequestInfo {
-	req, err := ri.unwrapReq(rawReq)
-	if err != nil {
-		return types.RequestInfo{}
-	}
-	reqInfo, err := ri.requestIDFromSigHeader(req.sigHdr)
-	if err != nil {
-		return types.RequestInfo{}
-	}
-	return reqInfo
-}
-
-func (ri *RequestInspector) unwrapReq(req []byte) (*request, error) {
-	envelope, err := protoutil.UnmarshalEnvelope(req)
-	if err != nil {
-		return nil, err
-	}
-	payload := &cb.Payload{}
-	if err := proto.Unmarshal(envelope.Payload, payload); err != nil {
-		return nil, errors.Wrap(err, "failed unmarshaling payload")
-	}
-
-	if payload.Header == nil {
-		return nil, errors.Errorf("no header in payload")
-	}
-
-	sigHdr := &cb.SignatureHeader{}
-	if err := proto.Unmarshal(payload.Header.SignatureHeader, sigHdr); err != nil {
-		return nil, err
-	}
-
-	if len(payload.Header.ChannelHeader) == 0 {
-		return nil, errors.New("no channel header in payload")
-	}
-
-	chdr, err := protoutil.UnmarshalChannelHeader(payload.Header.ChannelHeader)
-	if err != nil {
-		return nil, errors.WithMessage(err, "error unmarshaling channel header")
-	}
-
-	return &request{
-		chHdr:    chdr,
-		sigHdr:   sigHdr,
-		envelope: envelope,
-	}, nil
-}
-
-// RemoteNodesFromConfigBlock unmarshals the node config from the block metadata
-func RemoteNodesFromConfigBlock(block *cb.Block, logger *flogging.FabricLogger, bccsp bccsp.BCCSP) (*nodeConfig, error) {
-	env := &cb.Envelope{}
-	if err := proto.Unmarshal(block.Data.Data[0], env); err != nil {
-		return nil, errors.Wrap(err, "failed unmarshaling envelope of config block")
-	}
-	bundle, err := channelconfig.NewBundleFromEnvelope(env, bccsp)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed getting a new bundle from envelope of config block")
-	}
-
-	channelMSPs, err := bundle.MSPManager().GetMSPs()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed obtaining MSPs from MSPManager")
-	}
-
-	oc, ok := bundle.OrdererConfig()
-	if !ok {
-		return nil, errors.New("no orderer config in config block")
-	}
-
-	configOptions := &smartbft.Options{}
-	if err := proto.Unmarshal(oc.ConsensusMetadata(), configOptions); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal consensus metadata")
-	}
-
-	var nodeIDs []uint64
-	var remoteNodes []cluster.RemoteNode
-	id2Identies := map[uint64][]byte{}
-	for _, consenter := range oc.Consenters() {
-		sanitizedID, err := crypto.SanitizeIdentity(protoutil.MarshalOrPanic(&msp.SerializedIdentity{
-			IdBytes: consenter.Identity,
-			Mspid:   consenter.MspId,
-		}))
+	out := make([]bdlslib.Identity, 0, len(consenters))
+	for i, c := range consenters {
+		pub, err := consenterPublicKey(c.ServerTlsCert)
 		if err != nil {
-			logger.Panicf("Failed to sanitize identity: %v [%s]", err, string(consenter.Identity))
+			return nil, fmt.Errorf("bdls: consenter[%d]: %w", i, err)
 		}
-		id2Identies[(uint64)(consenter.Id)] = sanitizedID
-		logger.Infof("%s %d ---> %s", bundle.ConfigtxValidator().ChannelID(), consenter.Id, string(consenter.Identity))
+		out = append(out, bdlslib.DefaultPubKeyToIdentity(pub))
+	}
+	return out, nil
+}
 
-		nodeIDs = append(nodeIDs, (uint64)(consenter.Id))
-
-		serverCertAsDER, err := pemToDER(consenter.ServerTlsCert, (uint64)(consenter.Id), "server", logger)
-		if err != nil {
-			return nil, errors.WithStack(err)
+// buildBDLSConfig assembles a bdlslib.Config from parsed channel metadata.
+// SignDigest + PublicKey are left nil here; Phase C7 fills them in from the
+// orderer's BCCSP handle so the private key never leaves the process. The
+// rest of the Config is populated from the on-chain ConfigMetadata plus a
+// couple of Fabric-side defaults (reliable decide on, state compare by
+// hash).
+func buildBDLSConfig(md *bdlsproto.ConfigMetadata, currentHeight uint64) (*bdlslib.Config, error) {
+	participants, err := participantsFromConsenters(md.Consenters)
+	if err != nil {
+		return nil, err
+	}
+	var startHeight uint64
+	if currentHeight > 0 {
+		startHeight = currentHeight - 1
+	}
+	cfg := &bdlslib.Config{
+		Epoch:         time.Now(),
+		CurrentHeight: startHeight,
+		Participants:  participants,
+		StateCompare:  compareState,
+		StateValidate: validateState,
+		// The BDLS paper's fast path is star-shaped: participants send
+		// commit messages to the round leader, not to every consenter.
+		// Fabric enables that path to preserve BDLS's linear message
+		// complexity as the orderer set grows.
+		EnableCommitUnicast: true,
+		// Reliable decide defaults to true for BDLS-on-Fabric: the single
+		// -flood legacy path exists only to keep pre-PR-A3 embedders
+		// working, and Fabric is a new embedder.
+		ReliableDecide: true,
+		// Fabric has an external block-cutter/proposal path. Start BDLS
+		// when a block proposal exists instead of burning empty rounds.
+		LazyStart: true,
+	}
+	if opt := md.Options; opt != nil {
+		cfg.Delta0 = msToDuration(opt.Delta0Ms)
+		cfg.Delta1 = msToDuration(opt.Delta1Ms)
+		cfg.DeltaPrime1 = msToDuration(opt.DeltaPrime1Ms)
+		cfg.Delta2 = msToDuration(opt.Delta2Ms)
+		cfg.Delta3 = msToDuration(opt.Delta3Ms)
+		if opt.DisableReliableDecide {
+			cfg.ReliableDecide = false
 		}
-		clientCertAsDER, err := pemToDER(consenter.ClientTlsCert, (uint64)(consenter.Id), "client", logger)
-		if err != nil {
-			return nil, errors.WithStack(err)
+	}
+	return cfg, nil
+}
+
+func newBDLSMessageOutLogger(logger *flogging.FabricLogger) func(*bdlslib.Message, *bdlslib.SignedProto) {
+	return func(m *bdlslib.Message, signed *bdlslib.SignedProto) {
+		if logger == nil || !logger.IsEnabledFor(zapcore.DebugLevel) || m == nil {
+			return
 		}
 
-		// Validate certificate structure
-		for _, cert := range [][]byte{serverCertAsDER, clientCertAsDER} {
-			if _, err := x509.ParseCertificate(cert); err != nil {
-				pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert})
-				logger.Errorf("Invalid certificate: %s", string(pemBytes))
-				return nil, err
+		signedBytes := 0
+		if signed != nil {
+			signedBytes = signed.Size()
+		}
+		proofBytes := 0
+		for _, proof := range m.Proof {
+			if proof != nil {
+				proofBytes += proof.Size()
 			}
 		}
-
-		nodeMSP, exists := channelMSPs[consenter.MspId]
-		if !exists {
-			return nil, errors.Errorf("no MSP found for MSP with ID of %s", consenter.MspId)
+		lockReleaseBytes := 0
+		if m.LockRelease != nil {
+			lockReleaseBytes = m.LockRelease.Size()
 		}
 
-		var rootCAs [][]byte
-		rootCAs = append(rootCAs, nodeMSP.GetTLSRootCerts()...)
-		rootCAs = append(rootCAs, nodeMSP.GetTLSIntermediateCerts()...)
-
-		sanitizedCert, err := crypto.SanitizeX509Cert(consenter.Identity)
-		if err != nil {
-			return nil, err
-		}
-
-		remoteNodes = append(remoteNodes, cluster.RemoteNode{
-			NodeAddress: cluster.NodeAddress{
-				ID:       (uint64)(consenter.Id),
-				Endpoint: fmt.Sprintf("%s:%d", consenter.Host, consenter.Port),
-			},
-
-			NodeCerts: cluster.NodeCerts{
-				ClientTLSCert: clientCertAsDER,
-				ServerTLSCert: serverCertAsDER,
-				ServerRootCA:  rootCAs,
-				Identity:      sanitizedCert,
-			},
-		})
+		logger.Debugf(
+			"bdls outgoing message type=%s height=%d round=%d signed_bytes=%d message_bytes=%d state_bytes=%d proof_count=%d proof_bytes=%d lock_release_bytes=%d",
+			m.Type.String(),
+			m.Height,
+			m.Round,
+			signedBytes,
+			m.Size(),
+			len(m.State),
+			len(m.Proof),
+			proofBytes,
+			lockReleaseBytes,
+		)
 	}
-
-	sort.Slice(nodeIDs, func(i, j int) bool {
-		return nodeIDs[i] < nodeIDs[j]
-	})
-
-	return &nodeConfig{
-		consenters:    oc.Consenters(),
-		remoteNodes:   remoteNodes,
-		id2Identities: id2Identies,
-		nodeIDs:       nodeIDs,
-	}, nil
 }
 
-type nodeConfig struct {
-	id2Identities NodeIdentitiesByID
-	remoteNodes   []cluster.RemoteNode
-	nodeIDs       []uint64
-	consenters    []*cb.Consenter
+// msToDuration converts an optional millisecond field into a time.Duration.
+// Zero / negative means "use library default", which is what bdls.Config
+// expects for Delta* zero values.
+func msToDuration(ms int64) time.Duration {
+	if ms <= 0 {
+		return 0
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
-// ConsenterCertificate denotes a TLS certificate of a consenter
-type ConsenterCertificate struct {
-	ConsenterCertificate []byte
-	CryptoProvider       bccsp.BCCSP
+// compareState is the BDLS StateCompare implementation for Fabric. BDLS
+// needs a total order over proposed blocks to pick between competing
+// proposals in the round-change stage. We use a plain SHA-256 comparison —
+// deterministic across nodes, cheap, and doesn't crack open the block
+// structure (which would force us to re-derive header-hashing logic from
+// protoutil, an invitation for drift).
+func compareState(a, b bdlslib.State) int {
+	ha := sha256.Sum256(a)
+	hb := sha256.Sum256(b)
+	return bytes.Compare(ha[:], hb[:])
 }
 
-// IsConsenterOfChannel returns whether the caller is a consenter of a channel
-// by inspecting the given configuration block.
-// It returns nil if true, else returns an error.
-func (conCert ConsenterCertificate) IsConsenterOfChannel(configBlock *cb.Block) error {
-	if configBlock == nil {
-		return errors.New("nil block")
-	}
-	envelopeConfig, err := protoutil.ExtractEnvelope(configBlock, 0)
-	if err != nil {
-		return err
-	}
-	bundle, err := channelconfig.NewBundleFromEnvelope(envelopeConfig, conCert.CryptoProvider)
-	if err != nil {
-		return err
-	}
-	oc, exists := bundle.OrdererConfig()
-	if !exists {
-		return errors.New("no orderer config in bundle")
-	}
-	if oc.ConsensusType() != "BFT" {
-		return errors.New("not a SmartBFT config block")
-	}
-
-	for _, consenter := range oc.Consenters() {
-		if bytes.Equal(conCert.ConsenterCertificate, consenter.ServerTlsCert) || bytes.Equal(conCert.ConsenterCertificate, consenter.ClientTlsCert) {
-			return nil
-		}
-	}
-	return cluster.ErrNotInChannel
-}
-
-type worker struct {
-	work      [][]byte
-	f         func([]byte)
-	workerNum int
-	id        int
-}
-
-func (w *worker) doWork() {
-	// sanity check
-	if w.workerNum == 0 {
-		panic("worker number is not defined")
-	}
-
-	if w.f == nil {
-		panic("worker function is not defined")
-	}
-
-	if len(w.work) == 0 {
-		panic("work is not defined")
-	}
-
-	for i, datum := range w.work {
-		if i%w.workerNum != w.id {
-			continue
-		}
-
-		w.f(datum)
-	}
+// validateState is the BDLS StateValidate hook. Any non-empty byte slice is
+// accepted at the state-machine level; real block-level validation (header
+// chaining, signatures, capability gate) runs in chain.go once BDLS has
+// decided. Doing it twice would just move error reporting around without
+// catching anything earlier.
+func validateState(s bdlslib.State) bool {
+	return len(s) > 0
 }

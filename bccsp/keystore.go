@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /*
 Copyright IBM Corp. 2016 All Rights Reserved.
 
@@ -20,7 +22,6 @@ package bccsp
 // The KeyStore can be read only, in that case StoreKey will return
 // an error.
 type KeyStore interface {
-
 	// ReadOnly returns true if this KeyStore is read only, false otherwise.
 	// If ReadOnly is true then StoreKey will fail.
 	ReadOnly() bool

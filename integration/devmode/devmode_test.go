@@ -14,10 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -29,7 +28,7 @@ import (
 var _ = Describe("Devmode", func() {
 	var (
 		testDir                     string
-		client                      *docker.Client
+		client                      dcli.APIClient
 		network                     *nwo.Network
 		ordererRunner               *ginkgomon.Runner
 		ordererProcess, peerProcess ifrit.Process
@@ -45,7 +44,7 @@ var _ = Describe("Devmode", func() {
 		testDir, err = os.MkdirTemp("", "devmode")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err = docker.NewClientFromEnv()
+		client, err = dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		network = nwo.New(devModeEtcdraft, testDir, client, StartPort(), components)
@@ -100,7 +99,7 @@ var _ = Describe("Devmode", func() {
 		orderer := network.Orderer("orderer")
 
 		By("setting up the channel")
-		channelparticipation.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
+		nwo.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
 
 		By("enabling V2_0 application capabilities")
 		nwo.EnableCapabilities(network, channelName, "Application", "V2_0", orderer, org1peer0)
@@ -232,6 +231,7 @@ func ApproveChaincodeForMyOrg(n *nwo.Network, channel string, orderer *nwo.Order
 				InitRequired:        chaincode.InitRequired,
 				CollectionsConfig:   chaincode.CollectionsConfig,
 				ClientAuth:          n.ClientAuthRequired,
+				WaitForEventTimeout: n.EventuallyTimeout,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))

@@ -9,11 +9,11 @@ package chainmgmt
 import (
 	"sync"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/internal/pkg/txflags"
 	"github.com/hyperledger/fabric/protoutil"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -47,7 +47,7 @@ func newBlkGenerator(batchConf *BatchConf, startingBlockNum uint64, previousBloc
 }
 
 func (bg *blkGenerator) startTxEnvCreators() {
-	for i := 0; i < numConcurrentTxEnvCreators; i++ {
+	for range numConcurrentTxEnvCreators {
 		go bg.startTxEnvCreator()
 	}
 }

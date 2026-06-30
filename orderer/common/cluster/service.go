@@ -11,8 +11,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/hyperledger/fabric-protos-go/orderer"
-	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric-lib-go/common/flogging"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -114,7 +114,7 @@ func (s *Service) initializeExpirationCheck(stream orderer.Cluster_StepServer, e
 		expiresAt:                        expiresAt(stream),
 		endpoint:                         endpoint,
 		nodeName:                         nodeName,
-		alert: func(template string, args ...interface{}) {
+		alert: func(template string, args ...any) {
 			s.Logger.Warningf(template, args...)
 		},
 	}

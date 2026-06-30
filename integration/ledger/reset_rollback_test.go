@@ -15,11 +15,10 @@ import (
 	"strings"
 	"syscall"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -318,7 +317,7 @@ func initThreeOrgsSetup() *setup {
 	testDir, err := os.MkdirTemp("", "reset-rollback")
 	Expect(err).NotTo(HaveOccurred())
 
-	client, err := docker.NewClientFromEnv()
+	client, err := dcli.New(dcli.FromEnv)
 	Expect(err).NotTo(HaveOccurred())
 
 	config := nwo.ThreeOrgEtcdRaft()
@@ -352,7 +351,7 @@ func initThreeOrgsSetup() *setup {
 	setup.startPeer(peers[1])
 	setup.startPeer(peers[2])
 
-	channelparticipation.JoinOrdererJoinPeersAppChannel(n, "testchannel", setup.orderer, setup.ordererRunner)
+	nwo.JoinOrdererJoinPeersAppChannel(n, "testchannel", setup.orderer, setup.ordererRunner)
 	n.UpdateOrgAnchorPeers(setup.orderer, testchannelID, "Org1", n.PeersInOrg("Org1"))
 	n.UpdateOrgAnchorPeers(setup.orderer, testchannelID, "Org2", n.PeersInOrg("Org2"))
 	n.UpdateOrgAnchorPeers(setup.orderer, testchannelID, "Org3", n.PeersInOrg("Org3"))

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/orderer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/internal/pkg/peer/blocksprovider"
 	"github.com/hyperledger/fabric/internal/pkg/peer/blocksprovider/fake"
@@ -153,7 +153,8 @@ func TestBFTCensorshipMonitor_NoHeadersNoBlocks(t *testing.T) {
 			})
 
 			return client, func() {}, nil
-		})
+		},
+	)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -227,7 +228,8 @@ func TestBFTCensorshipMonitor_CensorshipDetected(t *testing.T) {
 			})
 
 			return client, func() {}, nil
-		})
+		},
+	)
 	b7time := time.Now()
 	s.fakeProgressReporter.BlockProgressReturns(uint64(7), b7time)
 
@@ -313,7 +315,8 @@ func TestBFTCensorshipMonitor_SuspicionsRemovedCensorshipDetected(t *testing.T) 
 			})
 
 			return client, func() {}, nil
-		})
+		},
+	)
 	blockTime := time.Now()
 	s.fakeProgressReporter.BlockProgressReturns(uint64(7), blockTime)
 
@@ -423,7 +426,8 @@ func TestBFTCensorshipMonitor_SuspicionRemoved(t *testing.T) {
 			})
 
 			return client, func() {}, nil
-		})
+		},
+	)
 	blockTime := time.Now()
 	s.fakeProgressReporter.BlockProgressReturns(uint64(7), blockTime)
 
@@ -535,7 +539,8 @@ func TestBFTCensorshipMonitor_FaultySourceIgnored(t *testing.T) {
 			}
 
 			return client, func() {}, nil
-		})
+		},
+	)
 	blockTime := time.Now()
 	s.fakeProgressReporter.BlockProgressReturns(uint64(7), blockTime)
 
@@ -662,7 +667,8 @@ func TestBFTCensorshipMonitor_FaultySourceRecovery(t *testing.T) {
 			})
 
 			return client, func() {}, nil
-		})
+		},
+	)
 	blockTime := time.Now()
 	s.fakeProgressReporter.BlockProgressReturns(uint64(7), blockTime)
 

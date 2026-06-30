@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/pkg/statedata"
 )
 
@@ -228,7 +228,7 @@ type Envelope struct {
 	Data []byte
 	// ChannelHeaderBytes contains the marshalled ChannelHeader of the common.Header
 	ChannelHeaderBytes []byte
-	// ChannelHeaderBytes contains the marshalled SignatureHeader of the common.Header
+	// SignatureHeaderBytes contains the marshalled SignatureHeader of the common.Header
 	SignatureHeaderBytes []byte
 	// ChannelHeader contains the ChannelHeader of this envelope
 	ChannelHeader *common.ChannelHeader

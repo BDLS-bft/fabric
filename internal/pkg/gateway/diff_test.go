@@ -8,13 +8,14 @@ package gateway
 
 import (
 	"math"
+	"strings"
 	"testing"
 
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
-	"github.com/hyperledger/fabric-protos-go/msp"
-	"github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset/kvrwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/msp"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/stretchr/testify/require"
 )
 
@@ -87,7 +88,7 @@ func TestPayloadDifferenceReadVersion(t *testing.T) {
 	diff, err := payloadDifference(rpl1Bytes, rpl2Bytes)
 	require.NoError(t, err)
 
-	expected := [][]interface{}{
+	expected := [][]any{
 		{"type", "read value mismatch", "namespace", "ns1", "key", "key2", "initial-endorser-value", "4", "invoked-endorser-value", "5"},
 	}
 	require.ElementsMatch(t, expected, diff.details())
@@ -123,7 +124,7 @@ func TestPayloadDifferenceReadMissing(t *testing.T) {
 	diff, err := payloadDifference(rpl1Bytes, rpl2Bytes)
 	require.NoError(t, err)
 
-	expected := [][]interface{}{
+	expected := [][]any{
 		{"type", "missing read", "namespace", "ns1", "key", "key2", "initial-endorser-value", "4", "invoked-endorser-value", "0"},
 	}
 	require.ElementsMatch(t, expected, diff.details())
@@ -166,7 +167,7 @@ func TestPayloadDifferenceReadExtra(t *testing.T) {
 	diff, err := payloadDifference(rpl1Bytes, rpl2Bytes)
 	require.NoError(t, err)
 
-	expected := [][]interface{}{
+	expected := [][]any{
 		{"type", "extraneous read", "namespace", "ns1", "key", "key3", "initial-endorser-value", "0", "invoked-endorser-value", "3"},
 		{"type", "extraneous read", "namespace", "ns2", "key", "key3b", "initial-endorser-value", "0", "invoked-endorser-value", "5"},
 	}
@@ -203,7 +204,7 @@ func TestPayloadDifferenceReadMissingProtos(t *testing.T) {
 	diff, err := payloadDifference(rpl1Bytes, rpl2Bytes)
 	require.NoError(t, err)
 
-	expected := [][]interface{}{
+	expected := [][]any{
 		{"type", "extraneous read", "namespace", "ns1", "key", "key1", "initial-endorser-value", "0", "invoked-endorser-value", "4"},
 		{"type", "extraneous read", "namespace", "ns1", "key", "", "initial-endorser-value", "0", "invoked-endorser-value", "0"},
 	}
@@ -243,7 +244,7 @@ func TestPayloadDifferenceWriteValue(t *testing.T) {
 	diff, err := payloadDifference(rpl1Bytes, rpl2Bytes)
 	require.NoError(t, err)
 
-	expected := [][]interface{}{
+	expected := [][]any{
 		{"type", "write value mismatch", "namespace", "ns1", "key", "key2", "initial-endorser-value", "value2", "invoked-endorser-value", "value3"},
 		{"type", "missing write", "namespace", "ns1", "key", "key3", "initial-endorser-value", "value3", "invoked-endorser-value", ""},
 		{"type", "extraneous write", "namespace", "ns1", "key", "key4", "initial-endorser-value", "", "invoked-endorser-value", "value4"},
@@ -282,7 +283,7 @@ func TestPayloadDifferenceMetadata(t *testing.T) {
 	diff, err := payloadDifference(rpl1Bytes, rpl2Bytes)
 	require.NoError(t, err)
 
-	expected := [][]interface{}{
+	expected := [][]any{
 		{"type", "write metadata mismatch", "namespace", "ns1", "key", "key1", "name", "meta1", "initial-endorser-value", "value1", "invoked-endorser-value", "value2"},
 		{"type", "missing metadata write", "namespace", "ns2", "key", "key2", "name", "meta2", "initial-endorser-value", "mv1", "invoked-endorser-value", ""},
 		{"type", "extraneous metadata write", "namespace", "ns3", "key", "key2", "name", "meta2", "initial-endorser-value", "", "invoked-endorser-value", "mv1"},
@@ -352,11 +353,18 @@ func TestPayloadDifferenceSBEPolicy(t *testing.T) {
 	diff, err := payloadDifference(rpl1Bytes, rpl2Bytes)
 	require.NoError(t, err)
 
-	expected := [][]interface{}{
-		{"type", "write metadata mismatch (SBE policy)", "namespace", "ns1", "key", "key1", "name", "VALIDATION_PARAMETER", "initial-endorser-value", "rule:<n_out_of:<n:1 rules:<signed_by:0 > > > identities:<principal:\"orgA\" > ", "invoked-endorser-value", "rule:<n_out_of:<n:1 rules:<signed_by:0 > > > identities:<principal:\"orgB\" > "},
-		{"type", "missing metadata write (SBE policy)", "namespace", "ns1", "key", "key2", "name", "VALIDATION_PARAMETER", "initial-endorser-value", "rule:<n_out_of:<n:1 rules:<signed_by:0 > > > identities:<principal:\"orgA\" > ", "invoked-endorser-value", ""},
+	expected := [][]any{
+		{"type", "write metadata mismatch (SBE policy)", "namespace", "ns1", "key", "key1", "name", "VALIDATION_PARAMETER", "initial-endorser-value", "rule:{n_out_of:{n:1  rules:{signed_by:0}}}  identities:{principal:\"orgA\"}", "invoked-endorser-value", "rule:{n_out_of:{n:1  rules:{signed_by:0}}}  identities:{principal:\"orgB\"}"},
+		{"type", "missing metadata write (SBE policy)", "namespace", "ns1", "key", "key2", "name", "VALIDATION_PARAMETER", "initial-endorser-value", "rule:{n_out_of:{n:1  rules:{signed_by:0}}}  identities:{principal:\"orgA\"}", "invoked-endorser-value", ""},
 	}
-	require.ElementsMatch(t, expected, diff.details())
+	dif := diff.details()
+	for i := range expected {
+		for j := range expected[i] {
+			expected[i][j] = strings.ReplaceAll(expected[i][j].(string), " ", "")
+			dif[i][j] = strings.ReplaceAll(dif[i][j].(string), " ", "")
+		}
+	}
+	require.ElementsMatch(t, expected, dif)
 }
 
 func TestPayloadDifferenceChaincodeResponse(t *testing.T) {
@@ -384,7 +392,7 @@ func TestPayloadDifferenceChaincodeResponse(t *testing.T) {
 	diff, err := payloadDifference(rpl1Bytes, rpl2Bytes)
 	require.NoError(t, err)
 
-	expected := [][]interface{}{
+	expected := [][]any{
 		{"type", "chaincode response mismatch", "initial-endorser-response", "status: 200, message: no error, payload: my_value1", "invoked-endorser-response", "status: 200, message: no error, payload: my_value2"},
 	}
 	require.ElementsMatch(t, expected, diff.details())
@@ -423,7 +431,7 @@ func TestPayloadDifferencePrivateData(t *testing.T) {
 	diff, err := payloadDifference(rpl1Bytes, rpl2Bytes)
 	require.NoError(t, err)
 
-	expected := [][]interface{}{
+	expected := [][]any{
 		{"type", "private collection hash mismatch", "namespace", "ns1", "collection", "collection1", "initial-endorser-hash", "010203", "invoked-endorser-hash", "040506"},
 	}
 	require.ElementsMatch(t, expected, diff.details())
@@ -454,7 +462,7 @@ func TestPayloadDifferenceEvent(t *testing.T) {
 	diff, err := payloadDifference(rpl1Bytes, rpl2Bytes)
 	require.NoError(t, err)
 
-	expected := [][]interface{}{
+	expected := [][]any{
 		{"type", "chaincode event mismatch", "initial-endorser-event", "chaincodeId: ns1, name: my_event, value: my event payload 1", "invoked-endorser-event", "chaincodeId: ns1, name: my_event, value: my event payload 2"},
 	}
 	require.ElementsMatch(t, expected, diff.details())

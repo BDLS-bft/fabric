@@ -9,7 +9,7 @@ package idemix
 import (
 	"time"
 
-	"github.com/hyperledger/fabric-protos-go/msp"
+	"github.com/hyperledger/fabric-protos-go-apiv2/msp"
 )
 
 // IdentityDeserializer is implemented by both MSPManger and MSP
@@ -195,9 +195,10 @@ type ProviderType int
 
 // The ProviderType of a member relative to the member API
 const (
-	FABRIC ProviderType = iota // MSP is of FABRIC type
-	IDEMIX                     // MSP is of IDEMIX type
-	OTHER                      // MSP is of OTHER TYPE
+	FABRIC       ProviderType = iota // MSP is of FABRIC type
+	IDEMIX                           // MSP is of IDEMIX type
+	IDEMIX_ARIES                     // MSP is of IDEMIX_ARIES type
+	OTHER                            // MSP is of OTHER TYPE
 
 	// NOTE: as new types are added to this set,
 	// the mspTypes map below must be extended

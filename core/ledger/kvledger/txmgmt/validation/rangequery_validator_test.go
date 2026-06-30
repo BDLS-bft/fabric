@@ -9,7 +9,7 @@ package validation
 import (
 	"testing"
 
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset/kvrwset"
 	"github.com/hyperledger/fabric/core/ledger/internal/version"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/rwsetutil"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/statedb"
@@ -53,7 +53,8 @@ func TestRangeQueryBoundaryConditions(t *testing.T) {
 }
 
 func testRangeQuery(t *testing.T, testcase string, stateData *statedb.UpdateBatch, savepoint *version.Height,
-	ns string, rqi *kvrwset.RangeQueryInfo, expectedResult bool) {
+	ns string, rqi *kvrwset.RangeQueryInfo, expectedResult bool,
+) {
 	t.Run(testcase, func(t *testing.T) {
 		testDBEnv := stateleveldb.NewTestVDBEnv(t)
 		defer testDBEnv.Cleanup()

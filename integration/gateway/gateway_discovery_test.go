@@ -12,17 +12,16 @@ import (
 	"path/filepath"
 	"syscall"
 
-	docker "github.com/fsouza/go-dockerclient"
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/gateway"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
+	"github.com/hyperledger/fabric-protos-go-apiv2/gateway"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/protoutil"
+	dcli "github.com/moby/moby/client"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/tedsuo/ifrit"
 	ginkgomon "github.com/tedsuo/ifrit/ginkgomon_v2"
+	"google.golang.org/protobuf/proto"
 )
 
 var _ = Describe("GatewayService with endorser discovery", func() {
@@ -49,7 +48,7 @@ var _ = Describe("GatewayService with endorser discovery", func() {
 		testDir, err = os.MkdirTemp("", "gateway")
 		Expect(err).NotTo(HaveOccurred())
 
-		client, err := docker.NewClientFromEnv()
+		client, err := dcli.New(dcli.FromEnv)
 		Expect(err).NotTo(HaveOccurred())
 
 		config := nwo.ThreeOrgEtcdRaft()
@@ -62,7 +61,7 @@ var _ = Describe("GatewayService with endorser discovery", func() {
 		ordererRunner, ordererProcess, peerProcess = network.StartSingleOrdererNetwork("orderer")
 
 		orderer = network.Orderer("orderer")
-		channelparticipation.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
+		nwo.JoinOrdererJoinPeersAppChannel(network, "testchannel", orderer, ordererRunner)
 
 		network.VerifyMembership(
 			network.PeersWithChannel("testchannel"),

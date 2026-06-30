@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /*
 Copyright IBM Corp. 2016 All Rights Reserved.
 
@@ -53,22 +55,21 @@ func (h *Height) ToBytes() []byte {
 	return append(blockNumBytes, txNumBytes...)
 }
 
-// Compare return a -1, zero, or +1 based on whether this height is
+// Compare returns -1, zero, or +1 based on whether this height is
 // less than, equals to, or greater than the specified height respectively.
 func (h *Height) Compare(h1 *Height) int {
-	res := 0
 	switch {
-	case h.BlockNum != h1.BlockNum:
-		res = int(h.BlockNum - h1.BlockNum)
-	case h.TxNum != h1.TxNum:
-		res = int(h.TxNum - h1.TxNum)
+	case h.BlockNum < h1.BlockNum:
+		return -1
+	case h.BlockNum > h1.BlockNum:
+		return 1
+	case h.TxNum < h1.TxNum:
+		return -1
+	case h.TxNum > h1.TxNum:
+		return 1
 	default:
 		return 0
 	}
-	if res > 0 {
-		return 1
-	}
-	return -1
 }
 
 // String returns string for printing

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /*
 Copyright IBM Corp. 2016 All Rights Reserved.
 
@@ -65,7 +67,7 @@ func (s *ecdsaSigner) Sign(k bccsp.Key, digest []byte, opts bccsp.SignerOpts) ([
 type ecdsaPrivateKeyVerifier struct{}
 
 func (v *ecdsaPrivateKeyVerifier) Verify(k bccsp.Key, signature, digest []byte, opts bccsp.SignerOpts) (bool, error) {
-	return verifyECDSA(&(k.(*ecdsaPrivateKey).privKey.PublicKey), signature, digest, opts)
+	return verifyECDSA(&k.(*ecdsaPrivateKey).privKey.PublicKey, signature, digest, opts)
 }
 
 type ecdsaPublicKeyKeyVerifier struct{}

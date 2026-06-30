@@ -11,8 +11,8 @@ This checklist covers key configuration parameters for setting up a production o
 * [General.TLS.*](#general-tls)
 * [General.Keepalive.*](#general-keepalive)
 * [General.Cluster.*](#general-cluster)
-* [General.BoostrapMethod](#general-bootstrapmethod)
-* [General.BoostrapFile](#general-bootstrapfile)
+* [General.BootstrapMethod](#general-bootstrapmethod)
+* [General.BootstrapFile](#general-bootstrapfile)
 * [General.LocalMSPDir](#general-localmspdir)
 * [General.LocalMSPID](#general-localmspid)
 * [FileLedger.Location](#fileledger-location)
@@ -132,32 +132,6 @@ In general, these four parameters would only need to be configured if you want t
 * **`ServerCertificate`**
 * **`ServerPrivateKey`**
 
-## General.BoostrapMethod
-
-```
-# Bootstrap method: The method by which to obtain the bootstrap block
-# system channel is specified. The option can be one of:
-#   "file" - path to a file containing the genesis block or config block of system channel
-#   "none" - allows an orderer to start without a system channel configuration
-BootstrapMethod: none
-```
-**`BootstrapMethod`**: Since Fabric v3.0 system channel is no longer supported, thus override this value to `none` and then ensure that [`ChannelParticipation.Enabled`](#channelparticipation) is set to `true`, otherwise you will get an error when you attempt to start the node. 
-
-## General.BoostrapFile
-
-```
-# Bootstrap file: The file containing the bootstrap block to use when
-# initializing the orderer system channel and BootstrapMethod is set to
-# "file".  The bootstrap file can be the genesis block, and it can also be
-# a config block for late bootstrap of some consensus methods like Raft.
-# Generate a genesis block by updating $FABRIC_CFG_PATH/configtx.yaml and
-# using configtxgen command with "-outputBlock" option.
-# Defaults to file "genesisblock" (in $FABRIC_CFG_PATH directory) if not specified.
-BootstrapFile:
-```
-
-**`BoostrapFile`**: Since Fabric v3.0 the system channel is no longer supported, so this value will not be used, and can therefore be left blank.
-
 ## General.LocalMSPDir
 
 ```
@@ -167,7 +141,7 @@ BootstrapFile:
 LocalMSPDir: msp
 ```
 
-**`LocalMSPDir`**: (default value will often be overridden) This is the path to the ordering node's local MSP, which must be created before it can be deployed. The path can be absolute or relative to `FABRIC_CFG_PATH` (by default, it is `/etc/hyperledger/fabric` in the orderer image). Unless an absolute path is specified to a folder named something other than "msp", the ordering node defaults to looking for a folder called “msp” at the path (in other words, `FABRIC_CFG_PATH/msp`) and when using the orderer image: `/etc/hyperledger/fabric/msp`. If you are using the recommended folder structure described in the [Registering and enrolling identities with a CA](https://hyperledger-fabric-ca.readthedocs.io/en/release-1.4/deployguide/use_CA.html) topic, it would be relative to the `FABRIC_CFG_PATH` as follows:
+**`LocalMSPDir`**: (default value will often be overridden) This is the path to the ordering node's local MSP, which must be created before it can be deployed. The path can be absolute or relative to `FABRIC_CFG_PATH` (by default, it is `/etc/hyperledger/fabric` in the orderer image). Unless an absolute path is specified to a folder named something other than "msp", the ordering node defaults to looking for a folder called “msp” at the path (in other words, `FABRIC_CFG_PATH/msp`) and when using the orderer image: `/etc/hyperledger/fabric/msp`. If you are using the recommended folder structure described in the [Registering and enrolling identities with a CA](https://hyperledger-fabric-ca.readthedocs.io/en/latest/deployguide/use_CA.html) topic, it would be relative to the `FABRIC_CFG_PATH` as follows:
 `config/organizations/ordererOrganizations/org0.example.com/orderers/orderer0.org0.example.com/msp`. **The best practice is to store this data in persistent storage**. This prevents the MSP from being lost if your orderer containers are destroyed for some reason.
 
 ## General.LocalMSPID
@@ -349,13 +323,14 @@ Admin:
 ```
 ChannelParticipation:
     # Channel participation API is enabled.
-    Enabled: false
+    Enabled: true
 
     # The maximum size of the request body when joining a channel.
     MaxRequestBodySize: 1 MB
 ```
 
-* **`Enabled`**: If you are bootstrapping the ordering node with a system channel genesis block, this value can be set to either `true` or `false` (setting the value to `true` allows you to list channels and to migrate away from the system channel in the future). If you are **not** bootstrapping the ordering node with a system channel genesis block, this value must be set to `true` and the [`General.BoostrapMethod`](#general-boostrapmethod) should be set to `none`.
+* **`Enabled`**: Since system channel is no longer supported, this value must be `true` so that you can join ordering service nodes to a channel.
+
 * **`MaxRequestBodySize`**: (default value should not be overridden) This value controls the maximum size a configuration block can be and be accepted by this ordering node. Most configuration blocks are smaller than 1 MB, but if for some reason a configuration block is too large to be accept, bring down the node, increase this value, and restart the node.
 
 ## Consensus.*

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hyperledger/fabric-protos-go/orderer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/orderer"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/internal/pkg/peer/orderers"
@@ -166,7 +166,8 @@ func (d *BFTDeliverer) DeliverBlocks() {
 
 		// Create and start a censorship monitor.
 		d.censorshipMonitor = d.CensorshipDetectorFactory.Create(
-			d.ChannelID, d.BlockVerifier, d.requester, d, d.fetchSources, d.fetchSourceIndex, timeoutConfig)
+			d.ChannelID, d.BlockVerifier, d.requester, d, d.fetchSources, d.fetchSourceIndex, timeoutConfig,
+		)
 		go d.censorshipMonitor.Monitor()
 
 		// Wait for block fetcher & censorship monitor events, or a stop signal.

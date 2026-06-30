@@ -138,7 +138,7 @@ const (
 // recordHeightIfGreaterThanPreviousRecording creates a file "__preResetHeight" in the ledger's
 // directory. This file contains human readable string for the current block height. This function
 // only overwrites this information if the current block height is higher than the one recorded in
-// the existing file (if present). This helps in achieving fail-safe behviour of reset utility
+// the existing file (if present). This helps in achieving fail-safe behaviour of reset utility
 func recordHeightIfGreaterThanPreviousRecording(ledgerDir string) error {
 	logger.Infof("Preparing to record current height for ledger at [%s]", ledgerDir)
 	blkfilesInfo, err := constructBlockfilesInfo(ledgerDir)
@@ -166,7 +166,8 @@ func recordHeightIfGreaterThanPreviousRecording(ledgerDir string) error {
 	currentHt := blkfilesInfo.lastPersistedBlock + 1
 	if currentHt > previuoslyRecordedHt {
 		logger.Infof("Recording current height [%d]", currentHt)
-		return os.WriteFile(preResetHtFile,
+		return os.WriteFile(
+			preResetHtFile,
 			[]byte(strconv.FormatUint(currentHt, 10)),
 			0o640,
 		)

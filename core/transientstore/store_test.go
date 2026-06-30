@@ -13,16 +13,16 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
-	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric-protos-go/transientstore"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go-apiv2/peer"
+	"github.com/hyperledger/fabric-protos-go-apiv2/transientstore"
 	"github.com/hyperledger/fabric/common/policydsl"
 	commonutil "github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/util"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestMain(m *testing.M) {
@@ -427,7 +427,7 @@ func TestTransientStorePurgeBelowHeight(t *testing.T) {
 
 	// Persist simulation results into  store
 	var err error
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		err = testStore.Persist(txid, endorsersResults[i].ReceivedAtBlockHeight,
 			endorsersResults[i].PvtSimulationResultsWithConfig)
 		require.NoError(err)
@@ -502,7 +502,7 @@ func TestTransientStoreRetrievalWithFilter(t *testing.T) {
 
 	testTxid := "testTxid"
 	numEntries := 5
-	for i := 0; i < numEntries; i++ {
+	for i := range numEntries {
 		testStore.Persist(testTxid, uint64(i), samplePvtSimResWithConfig)
 	}
 
@@ -539,7 +539,7 @@ func TestTransientStoreRetrievalWithFilter(t *testing.T) {
 	}
 
 	var expectedRes []*EndorserPvtSimulationResults
-	for i := 0; i < numEntries; i++ {
+	for i := range numEntries {
 		expectedRes = append(expectedRes, &EndorserPvtSimulationResults{uint64(i), expectedSimulationRes})
 	}
 
@@ -661,7 +661,8 @@ func sampleCollectionConfigPackage(colName string) *peer.CollectionConfig {
 // persistOldProto is the code from 1.1 to populate stores with old proto message
 // this is used only for testing
 func (s *Store) persistOldProto(txid string, blockHeight uint64,
-	privateSimulationResults *rwset.TxPvtReadWriteSet) error {
+	privateSimulationResults *rwset.TxPvtReadWriteSet,
+) error {
 	logger.Debugf("Persisting private data to transient store for txid [%s] at block height [%d]", txid, blockHeight)
 
 	dbBatch := s.db.NewUpdateBatch()
@@ -733,7 +734,7 @@ func TestDeleteTransientStore(t *testing.T) {
 	samplePvtSimResWithConfig := samplePvtDataWithConfigInfo(t)
 	testTxid := "testTxid"
 	numEntries := 5
-	for i := 0; i < numEntries; i++ {
+	for i := range numEntries {
 		store.Persist(testTxid, uint64(i), samplePvtSimResWithConfig)
 	}
 

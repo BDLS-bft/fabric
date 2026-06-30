@@ -16,12 +16,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
-	ab "github.com/hyperledger/fabric-protos-go/orderer"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/integration/channelparticipation"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/ledger/rwset/kvrwset"
+	ab "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
+	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	"github.com/hyperledger/fabric/integration/pvtdata/marblechaincodeutil"
@@ -29,9 +27,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
-	"github.com/onsi/gomega/gexec"
 	"github.com/tedsuo/ifrit"
 	ginkgomon "github.com/tedsuo/ifrit/ginkgomon_v2"
+	"google.golang.org/protobuf/proto"
 )
 
 const channelID = "testchannel"
@@ -91,7 +89,7 @@ var _ = Describe("Pvtdata purge", func() {
 			startPeer(network, processes, peerRunners, peer)
 		}
 
-		channelparticipation.JoinOrdererJoinPeersAppChannel(network, channelID, orderer, ordererRunner)
+		nwo.JoinOrdererJoinPeersAppChannel(network, channelID, orderer, ordererRunner)
 
 		network.VerifyMembership(
 			network.PeersWithChannel(channelID),
@@ -164,7 +162,7 @@ var _ = Describe("Pvtdata purge", func() {
 				WaitForEvent: true,
 			}
 
-			marblechaincodeutil.AssertInvokeChaincodeFails(network, org2Peer0, purgeCommand, "Failed to purge state:PURGE_PRIVATE_DATA failed: transaction ID: [a-f0-9]{64}: purge private data is not enabled, channel application capability of V2_5 or later is required")
+			marblechaincodeutil.AssertInvokeChaincodeFails(network, org2Peer0, purgeCommand, "failed: transaction ID: [a-f0-9]{64}: purge private data is not enabled, channel application capability of V2_5 or later is required")
 		})
 	})
 
@@ -430,7 +428,8 @@ func getPrivateDataKeys(client pb.Deliver_DeliverWithPrivateDataClient, ledgerHe
 					for _, col := range nsPvtRwset.CollectionPvtRwset {
 						Expect(col.CollectionName).Should(SatisfyAny(
 							Equal("collectionMarbles"),
-							Equal("collectionMarblePrivateDetails")))
+							Equal("collectionMarblePrivateDetails"),
+						))
 
 						kvRwset := kvrwset.KVRWSet{}
 						err := proto.Unmarshal(col.GetRwset(), &kvRwset)
@@ -477,18 +476,10 @@ func startNewPeer(network *nwo.Network, orderer *nwo.Orderer, peer *nwo.Peer, le
 	startPeer(network, processes, runners, peer)
 
 	network.JoinChannel(channelID, orderer, peer)
-	sess, err := network.PeerAdminSession(
-		peer,
-		commands.ChannelFetch{
-			Block:      "newest",
-			ChannelID:  channelID,
-			Orderer:    network.OrdererAddress(orderer, nwo.ListenPort),
-			OutputFile: filepath.Join(network.RootDir, "newest_block.pb"),
-		},
-	)
+
+	b, err := nwo.Fetch(network, orderer, channelID, "newest")
 	Expect(err).NotTo(HaveOccurred())
-	Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
-	Expect(sess.Err).To(gbytes.Say(fmt.Sprintf("Received block: %d", ledgerHeight-1)))
+	Expect(b.GetHeader().GetNumber()).To(Equal(uint64(ledgerHeight) - 1))
 
 	network.Peers = append(network.Peers, peer)
 	nwo.WaitUntilEqualLedgerHeight(network, channelID, ledgerHeight-1, network.Peers...)
@@ -500,18 +491,10 @@ func addPeer(n *nwo.Network, orderer *nwo.Orderer, peer *nwo.Peer) ifrit.Process
 
 	n.JoinChannel(channelID, orderer, peer)
 	ledgerHeight := nwo.GetLedgerHeight(n, n.Peers[0], channelID)
-	sess, err := n.PeerAdminSession(
-		peer,
-		commands.ChannelFetch{
-			Block:      "newest",
-			ChannelID:  channelID,
-			Orderer:    n.OrdererAddress(orderer, nwo.ListenPort),
-			OutputFile: filepath.Join(n.RootDir, "newest_block.pb"),
-		},
-	)
+
+	b, err := nwo.Fetch(n, orderer, channelID, "newest")
 	Expect(err).NotTo(HaveOccurred())
-	Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
-	Expect(sess.Err).To(gbytes.Say(fmt.Sprintf("Received block: %d", ledgerHeight-1)))
+	Expect(b.GetHeader().GetNumber()).To(Equal(uint64(ledgerHeight) - 1))
 
 	n.Peers = append(n.Peers, peer)
 	nwo.WaitUntilEqualLedgerHeight(n, channelID, nwo.GetLedgerHeight(n, n.Peers[0], channelID), n.Peers...)

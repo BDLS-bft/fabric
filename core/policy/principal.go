@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /*
 Copyright IBM Corp. 2017 All Rights Reserved.
 
@@ -17,10 +19,10 @@ limitations under the License.
 package policy
 
 import (
-	"github.com/golang/protobuf/proto"
-	protomsp "github.com/hyperledger/fabric-protos-go/msp"
+	protomsp "github.com/hyperledger/fabric-protos-go-apiv2/msp"
 	"github.com/hyperledger/fabric/msp"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 const (

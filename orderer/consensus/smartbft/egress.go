@@ -9,12 +9,23 @@ package smartbft
 import (
 	"sync/atomic"
 
-	protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
-	"github.com/golang/protobuf/proto"
-	cb "github.com/hyperledger/fabric-protos-go/common"
-	ab "github.com/hyperledger/fabric-protos-go/orderer"
+	"github.com/hyperledger-labs/SmartBFT/pkg/api"
+	protos "github.com/hyperledger-labs/SmartBFT/smartbftprotos"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
+	ab "github.com/hyperledger/fabric-protos-go-apiv2/orderer"
+	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/protoutil"
+	"google.golang.org/protobuf/proto"
 )
+
+//go:generate mockery --dir . --name EgressComm --case underscore --with-expecter=true --output mocks
+
+type EgressCommFactory func(runtimeConfig *atomic.Value, channelId string, comm cluster.Communicator) EgressComm
+
+// Comm enables the communications between the nodes.
+type EgressComm interface {
+	api.Comm
+}
 
 //go:generate mockery -dir . -name RPC -case underscore -output mocks
 
@@ -27,8 +38,8 @@ type RPC interface {
 
 // Logger specifies the logger
 type Logger interface {
-	Warnf(template string, args ...interface{})
-	Panicf(template string, args ...interface{})
+	Warnf(template string, args ...any)
+	Panicf(template string, args ...any)
 }
 
 // Egress implementation
@@ -49,7 +60,7 @@ func (e *Egress) Nodes() []uint64 {
 
 // SendConsensus sends the BFT message to the cluster
 func (e *Egress) SendConsensus(targetID uint64, m *protos.Message) {
-	err := e.RPC.SendConsensus(targetID, bftMsgToClusterMsg(m, e.Channel))
+	err := e.RPC.SendConsensus(targetID, bftMsgToClusterMsg(m))
 	if err != nil {
 		e.Logger.Warnf("Failed sending to %d: %v", targetID, err)
 	}
@@ -60,7 +71,7 @@ func (e *Egress) SendTransaction(targetID uint64, request []byte) {
 	env := &cb.Envelope{}
 	err := proto.Unmarshal(request, env)
 	if err != nil {
-		e.Logger.Panicf("Failed unmarshaling request %v to envelope: %v", request, err)
+		e.Logger.Panicf("Failed unmarshalling request %v to envelope: %v", request, err)
 	}
 	msg := &ab.SubmitRequest{
 		Payload: env,
@@ -74,7 +85,7 @@ func (e *Egress) SendTransaction(targetID uint64, request []byte) {
 	e.RPC.SendSubmit(targetID, msg, report)
 }
 
-func bftMsgToClusterMsg(message *protos.Message, channel string) *ab.ConsensusRequest {
+func bftMsgToClusterMsg(message *protos.Message) *ab.ConsensusRequest {
 	return &ab.ConsensusRequest{
 		Payload: protoutil.MarshalOrPanic(message),
 	}

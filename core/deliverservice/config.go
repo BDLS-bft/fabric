@@ -9,12 +9,13 @@ package deliverservice
 import (
 	"encoding/pem"
 	"os"
+	"slices"
 	"time"
 
+	"github.com/hyperledger/fabric/common/deliverclient/orderers"
+	"github.com/hyperledger/fabric/common/viperutil"
 	"github.com/hyperledger/fabric/core/config"
 	"github.com/hyperledger/fabric/internal/pkg/comm"
-	"github.com/hyperledger/fabric/internal/pkg/peer/orderers"
-
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 )
@@ -25,6 +26,7 @@ const (
 	DefaultConnectionTimeout           = time.Second * 3
 	DefaultBlockCensorshipTimeoutKey   = time.Second * 30
 	DefaultMinimalReconnectInterval    = time.Millisecond * 100
+	DefaultPolicy                      = "cluster"
 )
 
 // DeliverServiceConfig is the struct that defines the deliverservice configuration.
@@ -52,6 +54,11 @@ type DeliverServiceConfig struct {
 	// OrdererEndpointOverrides is a map of orderer addresses which should be
 	// re-mapped to a different orderer endpoint.
 	OrdererEndpointOverrides map[string]*orderers.Endpoint
+	// Determines which delivery client will be used when consensus type is "BFT"
+	// (when consensus type is "etcdraft" this key is ignored).
+	// "simple" - use CFT deliverer
+	// "cluster" - use BFT deliverer
+	Policy string
 }
 
 type AddressOverride struct {
@@ -69,7 +76,7 @@ func GlobalConfig() *DeliverServiceConfig {
 
 func LoadOverridesMap() (map[string]*orderers.Endpoint, error) {
 	var overrides []AddressOverride
-	err := viper.UnmarshalKey("peer.deliveryclient.addressOverrides", &overrides)
+	err := viper.UnmarshalKey("peer.deliveryclient.addressOverrides", &overrides, viper.DecodeHook(viperutil.YamlStringToStructHook(overrides)))
 	if err != nil {
 		return nil, errors.WithMessage(err, "could not unmarshal peer.deliveryclient.addressOverrides")
 	}
@@ -207,4 +214,20 @@ func (c *DeliverServiceConfig) loadDeliverServiceConfig() {
 	}
 
 	c.OrdererEndpointOverrides = overridesMap
+
+	policyKey := "peer.deliveryclient.policy"
+	policyMissing := !viper.IsSet(policyKey)
+	policy := DefaultPolicy
+	if policyMissing {
+		logger.Infof("%s is not set, defaulting to %s.", policyKey, policy)
+	} else {
+		policy = viper.GetString(policyKey)
+		validPolicies := []string{"simple", "cluster"}
+		if !slices.Contains(validPolicies, policy) {
+			logger.Warnf("%s is set to \"%s\" which is not valid policy, defaulting to \"%s\"", policyKey, policy, DefaultPolicy)
+			policy = DefaultPolicy
+		}
+	}
+
+	c.Policy = policy
 }

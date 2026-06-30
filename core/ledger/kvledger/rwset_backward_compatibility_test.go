@@ -11,7 +11,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go-apiv2/common"
 	"github.com/hyperledger/fabric/common/ledger/testutil"
 	"github.com/hyperledger/fabric/common/util"
 	lgr "github.com/hyperledger/fabric/core/ledger"
@@ -57,12 +57,12 @@ func testGenerateSampleRWSet(t *testing.T) []byte {
 
 	txid := util.GenerateUUID()
 
-	// perform a range query for significant larger scan so that the merkle tree building kicks in
+	// perform a range query for significantly larger scan so that the merkle tree building kicks in
 	// each level contains max 50 nodes per the current configuration
 	simulator, err := ledger.NewTxSimulator(txid)
 	require.NoError(t, err)
-	for i := 0; i < 10011; i++ {
-		require.NoError(t, simulator.SetState("ns1", fmt.Sprintf("key-%000d", i), []byte(fmt.Sprintf("value-%000d", i))))
+	for i := range 10011 {
+		require.NoError(t, simulator.SetState("ns1", fmt.Sprintf("key-%000d", i), fmt.Appendf(nil, "value-%000d", i)))
 	}
 	simulator.Done()
 	simRes, err := simulator.GetTxSimulationResults()
@@ -76,7 +76,7 @@ func testGenerateSampleRWSet(t *testing.T) []byte {
 	require.NoError(t, err)
 	_, err = simulator.GetState("ns1", fmt.Sprintf("key-%000d", 5))
 	require.NoError(t, err)
-	require.NoError(t, simulator.SetState("ns1", fmt.Sprintf("key-%000d", 6), []byte(fmt.Sprintf("value-%000d-new", 6))))
+	require.NoError(t, simulator.SetState("ns1", fmt.Sprintf("key-%000d", 6), fmt.Appendf(nil, "value-%000d-new", 6)))
 	itr, err := simulator.GetStateRangeScanIterator("ns1", "", "")
 	require.NoError(t, err)
 	numKVs := 0

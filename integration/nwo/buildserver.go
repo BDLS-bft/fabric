@@ -32,12 +32,15 @@ func NewBuildServer(args ...string) *BuildServer {
 	}
 }
 
-func (s *BuildServer) Serve() {
+func (s *BuildServer) Serve() error {
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		return err
+	}
 
 	s.lis = lis
 	go s.server.Serve(lis)
+	return nil
 }
 
 func (s *BuildServer) Shutdown() {
